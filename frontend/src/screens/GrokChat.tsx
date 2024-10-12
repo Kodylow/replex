@@ -35,35 +35,6 @@ export default function CombinedChat() {
 
   useEffect(scrollToBottom, [messages]);
 
-  const grabWebpageContent = () => {
-    console.log("Attempting to grab webpage content");
-    setError(null); // Clear any previous errors
-    chrome.runtime.sendMessage({ action: "getPageContent" }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error(
-          "Error sending message to background script:",
-          chrome.runtime.lastError
-        );
-        setError(
-          "Failed to communicate with the extension. Please try reloading the page."
-        );
-      } else if (response && response.content) {
-        console.log(
-          "Webpage content received:",
-          response.content.substring(0, 100) + "..."
-        );
-        setAppWebpageContent(response.content);
-        setIsWebpageGrabbed(true);
-      } else if (response && response.error) {
-        console.error("Error getting page content:", response.error);
-        setError(response.error);
-      } else {
-        console.error("Failed to receive content");
-        setError("Failed to receive content from the page. Please try again.");
-      }
-    });
-  };
-
   const toggleWebpageGrab = useCallback(() => {
     const grabWebpageContent = () => {
       console.log("Attempting to grab webpage content");
@@ -254,7 +225,7 @@ export default function CombinedChat() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-grow overflow-hidden">
+      <div className="flex-grow overflow-hidden pb-16">
         <div ref={chatContainerRef} className="h-full overflow-y-auto px-4">
           {messages.map((message, index) => (
             <div
@@ -302,8 +273,8 @@ export default function CombinedChat() {
         </div>
       </div>
       {error && <div className="text-red-500 mb-2 px-4">Error: {error}</div>}
-      <div className="mt-4">
-        <div className="flex space-x-2 fixed bottom-0 left-0 right-0 p-4 bg-gray">
+      <div className="fixed bottom-0 left-0 right-0 bg-black p-4">
+        <div className="flex space-x-2">
           <Button
             onClick={toggleWebpageGrab}
             disabled={isStreaming}
