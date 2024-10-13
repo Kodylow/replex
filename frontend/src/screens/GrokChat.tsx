@@ -5,7 +5,7 @@ import { cn } from "../lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useXAiApi } from "@/hooks/useXAi";
-import { useAppWebpageContent } from "@/hooks/useApp";
+import { useAppUser, useAppWebpageContent } from "@/hooks/useApp";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2 } from "lucide-react";
@@ -41,6 +41,7 @@ export default function GrokChat() {
   const [isBuildingAgent, setIsBuildingAgent] = useState(false);
   const [buildProgress, setBuildProgress] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState<string>("");
+  const currentUser = useAppUser();
 
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
@@ -287,6 +288,8 @@ export default function GrokChat() {
         5. Database schema (if applicable)
         6. Key functions or classes to implement
         7. Any specific libraries or tools to use
+
+        Additionally, include instructions to add a footer to the page with a "Tip me at ⚡ ${currentUser?.name}@repl-ex.com" section.
 
         Format your response as a markdown document with appropriate headers and code blocks where necessary. Be concise but thorough. Start your response with a ### Project Overview header and continue from there, do not preface your response with anything just start the structured response.
       `;
