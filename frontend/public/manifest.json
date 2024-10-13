@@ -11,21 +11,11 @@
       "128": "repl-ex.ico"
     }
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
-      "run_at": "document_end"
-    }
-  ],
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage",
-    "tabs"
-  ],
+  "permissions": ["identity", "storage"],
   "host_permissions": [
-    "<all_urls>"
+    "https://replit.com/*",
+    "https://replex.replit.app/*",
+    "https://d41388c1-73da-437f-b0b7-62f215a91554-00-3577uk1dqrjza.picard.replit.dev/*"
   ],
   "icons": {
     "16": "repl-ex.ico",
@@ -46,17 +36,5 @@
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
-  },
-  "commands": {
-    "_execute_action": {
-      "suggested_key": {
-        "default": "Ctrl+K",
-        "mac": "Command+K"
-      },
-      "description": "Open/Close repl-ex"
-    }
-  },
-  "background": {
-    "service_worker": "background.js"
   }
 }

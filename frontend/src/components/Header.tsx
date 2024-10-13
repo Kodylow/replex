@@ -16,7 +16,6 @@ import {
   useAppUser,
 } from "../hooks/useApp";
 import { WalletContext } from "../contexts/WalletContext";
-import { useXAiApi } from "../hooks/useXAi";
 
 export default function Header() {
   const activeTab = useAppActiveTab();
@@ -25,22 +24,7 @@ export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const { state: walletState } = useContext(WalletContext);
   const user = useAppUser();
-  const xAiApi = useXAiApi();
   console.log("user", user);
-
-  const handleGrokChatClick = () => {
-    if (xAiApi) {
-      setActiveTab(Tab.GrokChat);
-      setCurrentScreen(Screen.GrokChat);
-      setIsOpen(false);
-    }
-  };
-
-  const handleXSearchClick = () => {
-    setActiveTab(Tab.XSearch);
-    setCurrentScreen(Screen.XSearch);
-    setIsOpen(false);
-  };
 
   return (
     <header className="flex justify-between items-center py-2 px-4 border-b relative">
@@ -51,10 +35,10 @@ export default function Header() {
           setCurrentScreen(Screen.Home);
         }}
       >
-        repl-x
+        repl-ex
       </h1>
       {user && (
-        <p className="text-xs text-muted-foreground">{user.name}@repl-x.com</p>
+        <p className="text-xs text-muted-foreground">{user.name}@repl-ex.com</p>
       )}
       <div className="flex items-center">
         <div
@@ -80,22 +64,7 @@ export default function Header() {
             </SheetHeader>
             <nav className="flex flex-col gap-2 mt-4">
               <Button
-                variant={activeTab === Tab.GrokChat ? "default" : "ghost"}
-                className="justify-start"
-                onClick={handleGrokChatClick}
-                disabled={!xAiApi}
-              >
-                GrokChat {!xAiApi && "(API key not set)"}
-              </Button>
-              <Button
-                variant={activeTab === Tab.XSearch ? "default" : "ghost"}
-                className="justify-start"
-                onClick={handleXSearchClick}
-              >
-                X Search
-              </Button>
-              <Button
-                variant={activeTab === Tab.Wallet ? "default" : "ghost"}
+                variant={activeTab === "wallet" ? "default" : "ghost"}
                 className="justify-start"
                 onClick={() => {
                   setActiveTab(Tab.Wallet);

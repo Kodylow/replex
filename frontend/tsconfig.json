@@ -26,6 +26,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "public/contentScript.js"],
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
