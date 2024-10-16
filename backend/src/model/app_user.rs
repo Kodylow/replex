@@ -6,7 +6,6 @@ use sqlx::FromRow;
 
 use super::base::{self, DbBmc};
 use super::ModelManager;
-use crate::router::handlers::NameOrPubkey;
 
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]
 pub struct AppUser {
@@ -48,23 +47,18 @@ impl AppUserBmc {
         base::get::<Self, _>(mm, id).await
     }
 
-    pub async fn get_by(mm: &ModelManager, col: NameOrPubkey, val: &str) -> Result<AppUser> {
-        let column_name = match col {
-            NameOrPubkey::Name => "name",
-            NameOrPubkey::Pubkey => "pubkey",
-        };
-
+    pub async fn get_by_name(mm: &ModelManager, name: &str) -> Result<AppUser> {
         let user: AppUser = sqlb::select()
             .table(Self::TABLE)
             .columns(AppUser::field_names())
-            .and_where(column_name, "=", val)
+            .and_where("name", "=", name)
             .fetch_optional(mm.db())
             .await?
             .ok_or(anyhow!(
                 "User not found in table '{}', {}: {}",
                 Self::TABLE,
-                column_name,
-                val
+                "name",
+                name
             ))?;
 
         Ok(user)

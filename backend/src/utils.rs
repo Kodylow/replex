@@ -3,9 +3,6 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use serde::{de, Deserialize, Deserializer};
-use xmpp::Agent;
-
-use crate::config::CONFIG;
 
 pub fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
 where

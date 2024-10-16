@@ -1,12 +1,24 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, Result};
-use serde::Serialize;
-use sqlb::{Fields, HasFields};
+use serde::{Deserialize, Serialize};
+use sqlb::{bindable, Fields, HasFields};
 use sqlx::FromRow;
 
 use super::base::{self, DbBmc};
 use super::ModelManager;
-use crate::model::invoice_state::InvoiceState;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, sqlx::Type)]
+#[repr(i32)]
+pub enum InvoiceState {
+    /// The invoice is pending payment.
+    Pending = 0,
+    /// The invoice has been paid and settled.
+    Settled = 1,
+    /// The invoice has been cancelled or expired.
+    Cancelled = 2,
+}
+
+bindable!(InvoiceState);
 
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]
 pub struct Invoice {

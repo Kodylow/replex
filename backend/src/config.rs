@@ -1,11 +1,8 @@
 use std::env;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use fedimint_client::derivable_secret::DerivableSecret;
-use fedimint_client::secret::{PlainRootSecretStrategy, RootSecretStrategy};
-use fedimint_core::api::InviteCode;
-use nostr::hashes::hex::FromHex;
+use multimint::fedimint_client::derivable_secret::DerivableSecret;
+use multimint::fedimint_client::secret::{PlainRootSecretStrategy, RootSecretStrategy};
 use tracing::info;
 
 lazy_static::lazy_static! {
@@ -40,8 +37,8 @@ impl Config {
     }
 
     fn create_root_secret(secret: &str) -> DerivableSecret {
-        let secret_bytes: [u8; 64] =
-            FromHex::from_hex(secret).expect("Invalid SECRET_KEY hex string");
-        PlainRootSecretStrategy::to_root_secret(&secret_bytes)
+        let secret_vec: Vec<u8> = hex::decode(secret).expect("Invalid SECRET_KEY hex string");
+        let secret_arr: [u8; 64] = secret_vec.try_into().expect("Invalid SECRET_KEY length");
+        PlainRootSecretStrategy::to_root_secret(&secret_arr)
     }
 }

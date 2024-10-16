@@ -1,7 +1,7 @@
 use axum::extract::{Path, State};
 use axum::Json;
-use fedimint_core::Amount;
-use nostr::prelude::XOnlyPublicKey;
+use multimint::fedimint_core::secp256k1::XOnlyPublicKey;
+use multimint::fedimint_core::Amount;
 use serde::ser::{SerializeTuple, Serializer};
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -11,7 +11,6 @@ use super::{LnurlStatus, LnurlType};
 use crate::config::CONFIG;
 use crate::error::AppError;
 use crate::model::app_user::AppUserBmc;
-use crate::router::handlers::NameOrPubkey;
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -64,18 +63,18 @@ pub async fn handle_well_known(
 ) -> Result<Json<LnurlWellKnownResponse>, AppError> {
     // see if username exists in nostr.json
     info!("well_known called with username: {}", username);
-    let _app_user = AppUserBmc::get_by(&state.mm, NameOrPubkey::Name, &username).await?;
+    let _app_user = AppUserBmc::get_by_name(&state.mm, &username).await?;
 
     let res = LnurlWellKnownResponse {
-        callback: format!("http://{}/lnurlp/{}/callback", CONFIG.domain, username).parse()?,
+        callback: format!("https://{}/lnurlp/{}/callback", CONFIG.domain, username).parse()?,
         max_sendable: Amount { msats: 100000 },
         min_sendable: Amount { msats: 1000 },
-        metadata: "test metadata".to_string(),
+        metadata: "".to_string(),
         comment_allowed: None,
         tag: LnurlType::PayRequest,
         status: LnurlStatus::Ok,
-        nostr_pubkey: Some(CONFIG.nostr_sk.public_key()),
-        allows_nostr: true,
+        nostr_pubkey: None,
+        allows_nostr: false,
     };
 
     Ok(Json(res))
