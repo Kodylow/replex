@@ -98,7 +98,7 @@ pub async fn handle_callback(
     let ln = client.get_first_module::<LightningClientModule>();
 
     let (op_id, pr, _) = ln
-        .create_bolt11_invoice(
+        .create_bolt11_invoice_for_user_tweaked(
             Amount {
                 msats: params.amount,
             },

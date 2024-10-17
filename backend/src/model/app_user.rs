@@ -10,15 +10,17 @@ use super::ModelManager;
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]
 pub struct AppUser {
     pub id: i32,
-    pub pubkey: String,
     pub name: String,
+    pub pubkey: String,
+    pub relay: String,
     pub federation_id: String,
 }
 
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]
 pub struct AppUserForCreate {
-    pub pubkey: String,
     pub name: String,
+    pub pubkey: String,
+    pub relay: String,
     pub federation_id: String,
 }
 
@@ -26,6 +28,7 @@ pub struct AppUserForCreate {
 pub struct AppUserForUpdate {
     pub pubkey: Option<String>,
     pub name: Option<String>,
+    pub relay: Option<String>,
     pub federation_id: Option<String>,
 }
 

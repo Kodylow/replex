@@ -1,10 +1,15 @@
 {
-  " names": {
+  "names": {
     "kody": "de8823cdc979bf4c753223edc19a7abc35ecff2959ef50ca9e9d573ac0f83fd0"
   },
   "relays": {
     "de8823cdc979bf4c753223edc19a7abc35ecff2959ef50ca9e9d573ac0f83fd0": [
       "wss://relay.damus.io"
+    ]
+  },
+  "federation_ids": {
+    "de8823cdc979bf4c753223edc19a7abc35ecff2959ef50ca9e9d573ac0f83fd0": [
+      "15db8cb4f1ec8e484d73b889372bec94812580f929e8148b7437d359af422cd3"
     ]
   }
 }
