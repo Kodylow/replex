@@ -11,7 +11,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use config::CONFIG;
 use itertools::Itertools;
-use model::invoice::InvoiceBmc;
+use model::{app_user::AppUserBmc, invoice::InvoiceBmc};
 use multimint::{fedimint_core::config::FederationId, fedimint_ln_client::LightningClientModule};
 use router::handlers::lnurlp::callback::spawn_invoice_subscription;
 use state::AppState;
@@ -64,12 +64,11 @@ async fn handle_pending_invoices(state: AppState) -> Result<()> {
                         .subscribe_ln_receive(invoice.op_id.parse().expect("invalid op_id"))
                         .await
                     {
-                        let nip05relays =
-                            AppUserRelaysBmc::get_by_id(&state.mm, invoice.app_user_id).await?;
+                        let user = AppUserBmc::get(&state.mm, invoice.app_user_id).await?;
                         spawn_invoice_subscription(
                             state.clone(),
                             invoice.id,
-                            nip05relays.clone(),
+                            user.clone(),
                             subscription,
                         )
                         .await;

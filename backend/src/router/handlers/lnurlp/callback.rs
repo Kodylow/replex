@@ -7,15 +7,14 @@ use axum::http::StatusCode;
 use axum::Json;
 use futures::StreamExt;
 use multimint::fedimint_client::oplog::UpdateStreamOrOutcome;
+use multimint::fedimint_client::ClientHandleArc;
 use multimint::fedimint_core::config::FederationId;
-use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_core::task::spawn;
 use multimint::fedimint_core::Amount;
 use multimint::fedimint_ln_client::{LightningClientModule, LnReceiveState};
 use multimint::fedimint_ln_common::lightning_invoice::{Bolt11InvoiceDescription, Description};
-use multimint::fedimint_mint_client::{MintClientModule, OOBNotes};
+use multimint::fedimint_mint_client::MintClientModule;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tracing::{error, info};
 use url::Url;
 
@@ -98,7 +97,7 @@ pub async fn handle_callback(
 
     let ln = client.get_first_module::<LightningClientModule>();
 
-    let (op_id, pr, preimage) = ln
+    let (op_id, pr, _) = ln
         .create_bolt11_invoice(
             Amount {
                 msats: params.amount,
@@ -193,7 +192,7 @@ pub(crate) async fn spawn_invoice_subscription(
 }
 
 async fn notify_user(
-    client: &ClientArc,
+    client: &ClientHandleArc,
     mm: &ModelManager,
     id: i32,
     amount: u64,
@@ -201,8 +200,13 @@ async fn notify_user(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mint = client.get_first_module::<MintClientModule>();
     let (operation_id, notes) = mint
-        .spend_notes(Amount::from_msats(amount), Duration::from_secs(604800), ())
+        .spend_notes(
+            Amount::from_msats(amount),
+            Duration::from_secs(604800),
+            false,
+            (),
+        )
         .await?;
 
-    Ok(())
+    todo!()
 }
