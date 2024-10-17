@@ -9,6 +9,7 @@ use futures::StreamExt;
 use multimint::fedimint_client::oplog::UpdateStreamOrOutcome;
 use multimint::fedimint_client::ClientHandleArc;
 use multimint::fedimint_core::config::FederationId;
+use multimint::fedimint_core::secp256k1::PublicKey;
 use multimint::fedimint_core::task::spawn;
 use multimint::fedimint_core::Amount;
 use multimint::fedimint_ln_client::{LightningClientModule, LnReceiveState};
@@ -21,7 +22,7 @@ use url::Url;
 use super::LnurlStatus;
 use crate::config::CONFIG;
 use crate::error::AppError;
-use crate::model::app_user::{AppUser, AppUserBmc};
+use crate::model::app_user::{AppUser, AppUserBmc, AppUserForUpdate};
 use crate::model::invoice::{InvoiceBmc, InvoiceForCreate, InvoiceState};
 use crate::model::ModelManager;
 use crate::state::AppState;
@@ -97,6 +98,8 @@ pub async fn handle_callback(
 
     let ln = client.get_first_module::<LightningClientModule>();
 
+    let tweak = user.last_tweak + 1;
+
     let (op_id, pr, _) = ln
         .create_bolt11_invoice_for_user_tweaked(
             Amount {
@@ -108,10 +111,19 @@ pub async fn handle_callback(
                     .unwrap_or("hermes address payment".to_string()),
             )?),
             None,
+            PublicKey::from_str(&user.pubkey)?,
+            tweak as u64,
             (),
             None,
         )
         .await?;
+
+    AppUserBmc::update(
+        &state.mm,
+        user.id,
+        AppUserForUpdate::new().set_last_tweak(Some(tweak as i64)),
+    )
+    .await?;
 
     // insert invoice into db for later verification
     let id = InvoiceBmc::create(
@@ -122,6 +134,7 @@ pub async fn handle_callback(
             app_user_id: user.id,
             amount: params.amount as i64,
             bolt11: pr.to_string(),
+            tweak,
         },
     )
     .await?;

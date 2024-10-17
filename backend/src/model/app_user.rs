@@ -12,6 +12,7 @@ pub struct AppUser {
     pub id: i32,
     pub name: String,
     pub pubkey: String,
+    pub last_tweak: i64,
     pub relay: String,
     pub federation_id: String,
 }
@@ -22,6 +23,7 @@ pub struct AppUserForCreate {
     pub pubkey: String,
     pub relay: String,
     pub federation_id: String,
+    pub last_tweak: i64,
 }
 
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]
@@ -30,8 +32,45 @@ pub struct AppUserForUpdate {
     pub name: Option<String>,
     pub relay: Option<String>,
     pub federation_id: Option<String>,
+    pub last_tweak: Option<i64>,
 }
 
+impl AppUserForUpdate {
+    pub fn new() -> Self {
+        Self {
+            pubkey: None,
+            name: None,
+            relay: None,
+            federation_id: None,
+            last_tweak: None,
+        }
+    }
+
+    pub fn set_pubkey(mut self, pubkey: Option<String>) -> Self {
+        self.pubkey = pubkey;
+        self
+    }
+
+    pub fn set_name(mut self, name: Option<String>) -> Self {
+        self.name = name;
+        self
+    }
+
+    pub fn set_relay(mut self, relay: Option<String>) -> Self {
+        self.relay = relay;
+        self
+    }
+
+    pub fn set_federation_id(mut self, federation_id: Option<String>) -> Self {
+        self.federation_id = federation_id;
+        self
+    }
+
+    pub fn set_last_tweak(mut self, last_tweak: Option<i64>) -> Self {
+        self.last_tweak = last_tweak;
+        self
+    }
+}
 pub struct AppUserBmc;
 
 impl DbBmc for AppUserBmc {

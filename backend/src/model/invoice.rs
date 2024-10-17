@@ -29,6 +29,7 @@ pub struct Invoice {
     pub bolt11: String,
     pub amount: i64,
     pub state: InvoiceState,
+    pub tweak: i64,
 }
 
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]
@@ -38,6 +39,7 @@ pub struct InvoiceForCreate {
     pub app_user_id: i32,
     pub bolt11: String,
     pub amount: i64,
+    pub tweak: i64,
 }
 
 #[derive(Debug, Clone, Fields, FromRow, Serialize)]

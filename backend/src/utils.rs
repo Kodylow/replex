@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::model::app_user::AppUserForUpdate;
 use crate::state::AppState;
 use crate::{
     model::{
@@ -60,14 +61,25 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
             .map(|v| v.as_str().unwrap().to_string())
             .collect::<Vec<String>>();
 
-        let app_user = AppUserForCreate {
-            name: name.clone(),
-            pubkey: pubkey.to_string(),
-            relay: user_relays[0].clone(),
-            federation_id: user_federation_ids[0].clone(),
-        };
-
-        AppUserBmc::create(&state.mm, app_user).await?;
+        // Update user if it already exists, keep last_tweak
+        if let Ok(user) = AppUserBmc::get_by_name(&state.mm, name.as_str()).await {
+            let app_user = AppUserForUpdate::new()
+                .set_pubkey(Some(pubkey.to_string()))
+                .set_name(Some(name.to_string()))
+                .set_relay(Some(user_relays[0].clone()))
+                .set_federation_id(Some(user_federation_ids[0].clone()));
+            AppUserBmc::update(&state.mm, user.id, app_user).await?;
+        // Create user if it doesn't exist
+        } else {
+            let app_user = AppUserForCreate {
+                name: name.clone(),
+                pubkey: pubkey.to_string(),
+                relay: user_relays[0].clone(),
+                federation_id: user_federation_ids[0].clone(),
+                last_tweak: 0, // Set to 0 for new users
+            };
+            AppUserBmc::create(&state.mm, app_user).await?;
+        }
     }
 
     Ok(())
