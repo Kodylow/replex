@@ -12,7 +12,6 @@ pub struct AppUser {
     pub id: i32,
     pub pubkey: String,
     pub name: String,
-    pub dm_type: String,
     pub federation_id: String,
 }
 
@@ -20,7 +19,6 @@ pub struct AppUser {
 pub struct AppUserForCreate {
     pub pubkey: String,
     pub name: String,
-    pub dm_type: String,
     pub federation_id: String,
 }
 
@@ -28,7 +26,6 @@ pub struct AppUserForCreate {
 pub struct AppUserForUpdate {
     pub pubkey: Option<String>,
     pub name: Option<String>,
-    pub dm_type: Option<String>,
     pub federation_id: Option<String>,
 }
 

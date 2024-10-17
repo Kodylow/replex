@@ -5,8 +5,7 @@ use tracing::info;
 
 use super::LnurlStatus;
 use crate::error::AppError;
-use crate::model::invoice::InvoiceBmc;
-use crate::model::invoice_state::InvoiceState;
+use crate::model::invoice::{InvoiceBmc, InvoiceState};
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize)]

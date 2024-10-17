@@ -12,6 +12,7 @@ use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_core::task::spawn;
 use multimint::fedimint_core::Amount;
 use multimint::fedimint_ln_client::{LightningClientModule, LnReceiveState};
+use multimint::fedimint_ln_common::lightning_invoice::{Bolt11InvoiceDescription, Description};
 use multimint::fedimint_mint_client::{MintClientModule, OOBNotes};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -21,10 +22,8 @@ use url::Url;
 use super::LnurlStatus;
 use crate::config::CONFIG;
 use crate::error::AppError;
-use crate::model::app_user_relays::AppUserRelaysBmc;
-use crate::model::invoice::{InvoiceBmc, InvoiceForCreate};
-use crate::model::invoice_state::InvoiceState;
-use crate::model::zap::{Zap, ZapBmc};
+use crate::model::app_user::{AppUser, AppUserBmc};
+use crate::model::invoice::{InvoiceBmc, InvoiceForCreate, InvoiceState};
 use crate::model::ModelManager;
 use crate::state::AppState;
 use crate::utils::empty_string_as_none;
@@ -81,11 +80,11 @@ pub async fn handle_callback(
         });
     }
 
-    let nip05relays = AppUserRelaysBmc::get_by(&state.mm, NameOrPubkey::Name, &username).await?;
-    let federation_id = FederationId::from_str(&nip05relays.federation_id).map_err(|e| {
+    let user = AppUserBmc::get_by_name(&state.mm, &username).await?;
+    let federation_id = FederationId::from_str(&user.federation_id).map_err(|e| {
         AppError::new(
             StatusCode::BAD_REQUEST,
-            anyhow::anyhow!("Invalid federation_id: {}", e),
+            anyhow::anyhow!("Invalid federation_id for user {}: {}", user.name, e),
         )
     })?;
 
@@ -99,14 +98,19 @@ pub async fn handle_callback(
 
     let ln = client.get_first_module::<LightningClientModule>();
 
-    let (op_id, pr) = ln
+    let (op_id, pr, preimage) = ln
         .create_bolt11_invoice(
             Amount {
                 msats: params.amount,
             },
-            "test invoice".to_string(), // todo set description hash properly
+            Bolt11InvoiceDescription::Direct(&Description::new(
+                params
+                    .comment
+                    .unwrap_or("hermes address payment".to_string()),
+            )?),
             None,
             (),
+            None,
         )
         .await?;
 
@@ -114,27 +118,14 @@ pub async fn handle_callback(
     let id = InvoiceBmc::create(
         &state.mm,
         InvoiceForCreate {
-            op_id: op_id.to_string(),
-            federation_id: nip05relays.federation_id.clone(),
-            app_user_id: nip05relays.app_user_id,
+            op_id: op_id.fmt_full().to_string(),
+            federation_id: user.federation_id.clone(),
+            app_user_id: user.id,
             amount: params.amount as i64,
             bolt11: pr.to_string(),
         },
     )
     .await?;
-
-    // save nostr zap request
-    if let Some(request) = params.nostr {
-        ZapBmc::create(
-            &state.mm,
-            Zap {
-                id,
-                request,
-                event_id: None,
-            },
-        )
-        .await?;
-    }
 
     // create subscription to operation
     let subscription = ln
@@ -142,11 +133,14 @@ pub async fn handle_callback(
         .await
         .expect("subscribing to a just created operation can't fail");
 
-    spawn_invoice_subscription(state, id, nip05relays, subscription).await;
+    spawn_invoice_subscription(state, id, user, subscription).await;
 
     let verify_url = format!(
         "http://{}:{}/lnurlp/{}/verify/{}",
-        CONFIG.domain, CONFIG.port, username, op_id
+        CONFIG.domain,
+        CONFIG.port,
+        username,
+        op_id.fmt_full().to_string()
     );
 
     let res = LnurlCallbackResponse {
@@ -164,15 +158,14 @@ pub async fn handle_callback(
 pub(crate) async fn spawn_invoice_subscription(
     state: AppState,
     id: i32,
-    userrelays: AppUserRelays,
+    user: AppUser,
     subscription: UpdateStreamOrOutcome<LnReceiveState>,
 ) {
     spawn("waiting for invoice being paid", async move {
         let locked_clients = state.fm.clients.lock().await;
         let client = locked_clients
-            .get(&FederationId::from_str(&userrelays.federation_id).unwrap())
+            .get(&FederationId::from_str(&user.federation_id).unwrap())
             .unwrap();
-        let nostr = state.nostr.clone();
         let mut stream = subscription.into_stream();
         while let Some(op_state) = stream.next().await {
             match op_state {
@@ -188,16 +181,9 @@ pub(crate) async fn spawn_invoice_subscription(
                     let invoice = InvoiceBmc::set_state(&state.mm, id, InvoiceState::Settled)
                         .await
                         .expect("settling invoice can't fail");
-                    notify_user(
-                        client,
-                        &nostr,
-                        &state.mm,
-                        id,
-                        invoice.amount as u64,
-                        userrelays.clone(),
-                    )
-                    .await
-                    .expect("notifying user can't fail");
+                    notify_user(client, &state.mm, id, invoice.amount as u64, user.clone())
+                        .await
+                        .expect("notifying user can't fail");
                     break;
                 }
                 _ => {}
@@ -208,120 +194,15 @@ pub(crate) async fn spawn_invoice_subscription(
 
 async fn notify_user(
     client: &ClientArc,
-    nostr: &Client,
     mm: &ModelManager,
     id: i32,
     amount: u64,
-    app_user_relays: AppUserRelays,
+    user: AppUser,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mint = client.get_first_module::<MintClientModule>();
     let (operation_id, notes) = mint
         .spend_notes(Amount::from_msats(amount), Duration::from_secs(604800), ())
         .await?;
-    match app_user_relays.dm_type.as_str() {
-        "nostr" => send_nostr_dm(nostr, &app_user_relays, operation_id, amount, notes).await,
-        "xmpp" => send_xmpp_msg(&app_user_relays, operation_id, amount, notes).await,
-        _ => Err(anyhow::anyhow!("Unsupported dm_type")),
-    }?;
-
-    // Send zap if needed
-    if let Ok(zap) = ZapBmc::get(mm, id).await {
-        let request = Event::from_json(zap.request)?;
-        let event = create_zap_event(request, amount)?;
-
-        let event_id = nostr.send_event(event).await?;
-        info!("Broadcasted zap {event_id}!");
-
-        ZapBmc::set_event_id(mm, id, event_id).await?;
-    }
 
     Ok(())
-}
-
-async fn send_nostr_dm(
-    nostr: &Client,
-    app_user_relays: &AppUserRelays,
-    operation_id: OperationId,
-    amount: u64,
-    notes: OOBNotes,
-) -> Result<()> {
-    let dm = nostr
-        .send_direct_msg(
-            XOnlyPublicKey::from_str(&app_user_relays.pubkey).unwrap(),
-            json!({
-                "operationId": operation_id,
-                "amount": amount,
-                "notes": notes.to_string(),
-            })
-            .to_string(),
-            None,
-        )
-        .await?;
-
-    info!("Sent nostr dm: {dm}");
-    Ok(())
-}
-
-// TODO: add xmpp to registration
-async fn send_xmpp_msg(
-    app_user_relays: &AppUserRelays,
-    operation_id: OperationId,
-    amount: u64,
-    notes: OOBNotes,
-) -> Result<()> {
-    let mut xmpp_client = create_xmpp_client()?;
-    let recipient = xmpp::BareJid::new(&format!(
-        "{}@{}",
-        app_user_relays.name, CONFIG.xmpp_chat_server
-    ))?;
-
-    xmpp_client
-        .send_message(
-            Jid::Bare(recipient),
-            MessageType::Chat,
-            "en",
-            &json!({
-                "operationId": operation_id,
-                "amount": amount,
-                "notes": notes.to_string(),
-            })
-            .to_string(),
-        )
-        .await;
-
-    Ok(())
-}
-
-/// Creates a nostr zap event with a fake invoice
-fn create_zap_event(request: Event, amt_msats: u64) -> Result<Event> {
-    let preimage = &mut [0u8; 32];
-    OsRng.fill_bytes(preimage);
-    let invoice_hash = Sha256::hash(preimage);
-
-    let payment_secret = &mut [0u8; 32];
-    OsRng.fill_bytes(payment_secret);
-
-    let priv_key_bytes = &mut [0u8; 32];
-    OsRng.fill_bytes(priv_key_bytes);
-    let private_key = SecretKey::from_slice(priv_key_bytes)?;
-
-    let desc_hash = Sha256::hash(request.as_json().as_bytes());
-
-    let fake_invoice = InvoiceBuilder::new(Currency::Bitcoin)
-        .amount_milli_satoshis(amt_msats)
-        .description_hash(desc_hash)
-        .current_timestamp()
-        .payment_hash(invoice_hash)
-        .payment_secret(PaymentSecret(*payment_secret))
-        .min_final_cltv_expiry_delta(144)
-        .build_signed(|hash| Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))?;
-
-    let event = EventBuilder::new_zap_receipt(
-        fake_invoice.to_string(),
-        Some(hex::encode(preimage)),
-        request,
-    )
-    .to_event(&CONFIG.nostr_sk)?;
-
-    Ok(event)
 }

@@ -1,7 +1,5 @@
 use std::fs::read_to_string;
 
-use serde::{Deserialize, Serialize};
-
 pub mod lnurlp;
 pub mod register;
 
