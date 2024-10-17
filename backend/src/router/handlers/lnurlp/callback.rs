@@ -81,18 +81,6 @@ pub async fn handle_callback(
         });
     }
 
-    // verify nostr param is a zap request
-    if params
-        .nostr
-        .as_ref()
-        .is_some_and(|n| Event::from_json(n).is_ok_and(|e| e.kind == Kind::ZapRequest))
-    {
-        return Err(AppError {
-            error: anyhow::anyhow!("Invalid nostr event"),
-            status: StatusCode::BAD_REQUEST,
-        });
-    }
-
     let nip05relays = AppUserRelaysBmc::get_by(&state.mm, NameOrPubkey::Name, &username).await?;
     let federation_id = FederationId::from_str(&nip05relays.federation_id).map_err(|e| {
         AppError::new(

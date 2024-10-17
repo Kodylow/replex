@@ -1,0 +1,5 @@
+db:
+  source .env && docker compose up -d
+
+wipe-db:
+  source .env && docker compose down -v
