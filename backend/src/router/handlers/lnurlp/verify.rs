@@ -30,7 +30,7 @@ pub async fn handle_verify(
     );
 
     // Use the operation id to look up the invoice
-    let sql = "SELECT * FROM invoices WHERE op_id = $1";
+    let sql = "SELECT * FROM invoice WHERE op_id = $1";
     match state.db.query_opt::<Invoice>(sql, &[&op_id]).await? {
         Some(invoice) => {
             let verify_response = LnurlVerifyResponse {

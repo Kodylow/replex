@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use deadpool_postgres::{Client, Pool, Runtime};
 use postgres_from_row::FromRow;
@@ -28,9 +26,15 @@ impl Db {
     pub async fn setup_schema(&self) -> Result<()> {
         let client = self.client().await?;
         info!("Setting up schema");
-        client
-            .execute(include_str!("../../schema/v0.sql"), &[])
-            .await?;
+
+        let schema_sql = include_str!("../../schema/v0.sql");
+        for statement in schema_sql.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                client.execute(trimmed, &[]).await?;
+            }
+        }
+
         info!("Schema setup complete");
         Ok(())
     }
@@ -98,24 +102,5 @@ impl Db {
             .iter()
             .map(T::try_from_row)
             .collect::<Result<_, _>>()?)
-    }
-
-    pub async fn query_group_by<T>(
-        &self,
-        sql: &str,
-        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
-    ) -> anyhow::Result<HashMap<String, Vec<T>>>
-    where
-        T: FromRow,
-    {
-        let client = self.client().await?;
-        let result = client.query(sql, params).await?;
-        let mut grouped: HashMap<String, Vec<T>> = HashMap::new();
-        for row in result {
-            let item = T::try_from_row(&row)?;
-            let key: String = row.try_get(0)?;
-            grouped.entry(key).or_default().push(item);
-        }
-        Ok(grouped)
     }
 }
