@@ -65,7 +65,7 @@ pub async fn handle_well_known(
 ) -> Result<Json<LnurlWellKnownResponse>, AppError> {
     // see if username exists in nostr.json
     info!("well_known called with username: {}", username);
-    let sql = "SELECT * FROM app_users WHERE name = $1";
+    let sql = "SELECT * FROM app_user WHERE name = $1";
     match state.db.query_opt::<AppUser>(sql, &[&username]).await? {
         Some(_) => {
             let res = LnurlWellKnownResponse {

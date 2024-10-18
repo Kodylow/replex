@@ -5,9 +5,8 @@ use tokio_postgres::Row;
 
 use super::db::Db;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct AppUser {
-    pub id: i32,
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct AppUserForCreate {
     pub name: String,
     pub pubkey: String,
     pub last_tweak: i64,
@@ -15,15 +14,14 @@ pub struct AppUser {
     pub federation_ids: Vec<String>,
 }
 
-impl AppUser {
-    pub fn builder() -> AppUserBuilder {
-        AppUserBuilder::default()
+impl AppUserForCreate {
+    pub fn builder() -> AppUserForCreateBuilder {
+        AppUserForCreateBuilder::default()
     }
 }
 
 #[derive(Default)]
-pub struct AppUserBuilder {
-    id: Option<i32>,
+pub struct AppUserForCreateBuilder {
     name: Option<String>,
     pubkey: Option<String>,
     last_tweak: Option<i64>,
@@ -31,12 +29,7 @@ pub struct AppUserBuilder {
     federation_ids: Option<Vec<String>>,
 }
 
-impl AppUserBuilder {
-    pub fn id(mut self, id: i32) -> Self {
-        self.id = Some(id);
-        self
-    }
-
+impl AppUserForCreateBuilder {
     pub fn name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
@@ -62,9 +55,8 @@ impl AppUserBuilder {
         self
     }
 
-    pub fn build(self) -> anyhow::Result<AppUser> {
-        Ok(AppUser {
-            id: self.id.ok_or_else(|| anyhow::anyhow!("id is required"))?,
+    pub fn build(self) -> anyhow::Result<AppUserForCreate> {
+        Ok(AppUserForCreate {
             name: self
                 .name
                 .ok_or_else(|| anyhow::anyhow!("name is required"))?,
@@ -82,6 +74,16 @@ impl AppUserBuilder {
                 .ok_or_else(|| anyhow::anyhow!("federation_ids is required"))?,
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppUser {
+    pub id: i32,
+    pub name: String,
+    pub pubkey: String,
+    pub last_tweak: i64,
+    pub relays: Vec<String>,
+    pub federation_ids: Vec<String>,
 }
 
 impl FromRow for AppUser {
@@ -168,14 +170,14 @@ impl AppUserForUpdateBuilder {
 
 impl AppUser {
     pub async fn update_tweak(db: &Db, user: &AppUser, tweak: i64) -> Result<()> {
-        let sql = "UPDATE app_users SET last_tweak = $1 WHERE id = $2";
+        let sql = "UPDATE app_user SET last_tweak = $1 WHERE id = $2";
         db.execute(sql, &[&tweak, &user.id]).await?;
         Ok(())
     }
 }
 
 pub async fn get_user(db: &Db, username: &str) -> Result<AppUser> {
-    let sql = "SELECT * FROM app_users WHERE name = $1";
+    let sql = "SELECT * FROM app_user WHERE name = $1";
     db.query_one::<AppUser>(sql, &[&username])
         .await
         .map_err(|e| e.into())

@@ -14,7 +14,9 @@ use utils::{handle_pending_invoices, load_users_and_keys};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
 
     let state = AppState::new().await?;
 

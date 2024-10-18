@@ -2,10 +2,10 @@
 CREATE TABLE IF NOT EXISTS app_user (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
-  pubkey VARCHAR(255) NOT NULL UNIQUE,
+  pubkey VARCHAR(66) NOT NULL UNIQUE,
   last_tweak BIGINT NOT NULL,
-  relay VARCHAR(255) NOT NULL,
-  federation_id VARCHAR(255) NOT NULL
+  relays TEXT [] NOT NULL,
+  federation_ids TEXT [] NOT NULL
 );
 -- Create invoice table
 CREATE TABLE IF NOT EXISTS invoice (

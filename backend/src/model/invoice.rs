@@ -25,24 +25,19 @@ pub enum InvoiceState {
 
 impl FromSql<'_> for InvoiceState {
     fn accepts(ty: &postgres_types::Type) -> bool {
-        ty.name() == "invoice_state" || ty.name() == "char"
+        ty.name() == "invoice_state" || ty.name() == "int4"
     }
 
     fn from_sql(
-        _: &postgres_types::Type,
+        ty: &postgres_types::Type,
         raw: &[u8],
     ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        let s = std::str::from_utf8(raw).map_err(|_| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid UTF-8 string",
-            ))
-        })?;
-        match s {
-            "pending" => Ok(InvoiceState::Pending),
-            "settled" => Ok(InvoiceState::Settled),
-            "cancelled" => Ok(InvoiceState::Cancelled),
-            _ => Err(format!("Invalid invoice state: {:?}", s).into()),
+        let value = i32::from_sql(ty, raw)?;
+        match value {
+            0 => Ok(InvoiceState::Pending),
+            1 => Ok(InvoiceState::Settled),
+            2 => Ok(InvoiceState::Cancelled),
+            _ => Err(format!("Invalid invoice state: {}", value).into()),
         }
     }
 }
@@ -50,15 +45,14 @@ impl FromSql<'_> for InvoiceState {
 impl ToSql for InvoiceState {
     fn to_sql(
         &self,
-        _: &postgres_types::Type,
+        ty: &postgres_types::Type,
         out: &mut bytes::BytesMut,
     ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
-        match self {
-            InvoiceState::Pending => out.extend_from_slice(b"pending"),
-            InvoiceState::Settled => out.extend_from_slice(b"settled"),
-            InvoiceState::Cancelled => out.extend_from_slice(b"cancelled"),
-        }
-        Ok(tokio_postgres::types::IsNull::No)
+        (*self as i32).to_sql(ty, out)
+    }
+
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        ty.name() == "invoice_state" || ty.name() == "int4"
     }
 
     fn to_sql_checked(
@@ -66,11 +60,7 @@ impl ToSql for InvoiceState {
         ty: &postgres_types::Type,
         out: &mut bytes::BytesMut,
     ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
-        self.to_sql(ty, out)
-    }
-
-    fn accepts(ty: &postgres_types::Type) -> bool {
-        ty.name() == "invoice_state" || ty.name() == "char"
+        (*self as i32).to_sql_checked(ty, out)
     }
 }
 
