@@ -1,14 +1,14 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::error::AppError;
 use crate::model::app_user::{AppUser, AppUserForUpdate};
 use crate::model::invoice::Invoice;
+use crate::router::handlers::lnurlp::callback::spawn_invoice_subscription;
 use crate::state::AppState;
-use crate::{
-    model::app_user::AppUserForCreate,
-    router::handlers::lnurlp::callback::spawn_invoice_subscription,
-};
 use anyhow::Result;
+use axum::http::StatusCode;
+use multimint::fedimint_client::ClientHandleArc;
 use multimint::{fedimint_core::config::FederationId, fedimint_ln_client::LightningClientModule};
 use serde::{de, Deserialize, Deserializer};
 use serde_json::Value;
@@ -86,7 +86,7 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
                 )
                 .await?;
         } else {
-            let app_user = AppUserForCreate::builder()
+            let app_user = AppUser::builder()
                 .name(name.clone())
                 .pubkey(pubkey.to_string())
                 .relays(user_relays)
@@ -136,7 +136,7 @@ pub async fn handle_pending_invoices(state: AppState) -> Result<()> {
                                 invoice.clone(),
                                 subscription,
                             )
-                            .await;
+                            .await?;
                         }
                     }
                 }
@@ -148,4 +148,26 @@ pub async fn handle_pending_invoices(state: AppState) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub async fn get_federation_and_client(
+    state: &AppState,
+    user: &AppUser,
+) -> Result<(FederationId, ClientHandleArc), AppError> {
+    let federation_id = FederationId::from_str(&user.federation_ids[0]).map_err(|e| {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            anyhow::anyhow!("Invalid federation_id for user {}: {}", user.name, e),
+        )
+    })?;
+
+    let locked_clients = state.fm.clients.lock().await.clone();
+    let client = locked_clients.get(&federation_id).ok_or_else(|| {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            anyhow::anyhow!("FederationId not found in multimint map"),
+        )
+    })?;
+
+    Ok((federation_id, client.clone()))
 }
