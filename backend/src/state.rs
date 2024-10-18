@@ -2,20 +2,19 @@ use anyhow::Result;
 use config::CONFIG;
 use multimint::MultiMint;
 
-use crate::config;
-use crate::model::ModelManager;
+use crate::{config, model::db::Db};
 
 #[derive(Clone)]
 pub struct AppState {
     pub fm: MultiMint,
-    pub mm: ModelManager,
+    pub db: Db,
 }
 
 impl AppState {
     pub async fn new() -> Result<Self> {
         let fm = MultiMint::new(CONFIG.fm_db_path.clone()).await?;
-        let mm = ModelManager::new().await?;
+        let db = Db::new(CONFIG.pg_db.clone()).await?;
 
-        Ok(Self { fm, mm })
+        Ok(Self { fm, db })
     }
 }

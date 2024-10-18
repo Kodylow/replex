@@ -9,11 +9,14 @@ use futures::StreamExt;
 use multimint::fedimint_client::oplog::UpdateStreamOrOutcome;
 use multimint::fedimint_client::ClientHandleArc;
 use multimint::fedimint_core::config::FederationId;
+use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_core::secp256k1::PublicKey;
 use multimint::fedimint_core::task::spawn;
 use multimint::fedimint_core::Amount;
 use multimint::fedimint_ln_client::{LightningClientModule, LnReceiveState};
-use multimint::fedimint_ln_common::lightning_invoice::{Bolt11InvoiceDescription, Description};
+use multimint::fedimint_ln_common::lightning_invoice::{
+    Bolt11Invoice, Bolt11InvoiceDescription, Description,
+};
 use multimint::fedimint_mint_client::MintClientModule;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -22,11 +25,11 @@ use url::Url;
 use super::LnurlStatus;
 use crate::config::CONFIG;
 use crate::error::AppError;
-use crate::model::app_user::{AppUser, AppUserBmc, AppUserForUpdate};
-use crate::model::invoice::{InvoiceBmc, InvoiceForCreate, InvoiceState};
-use crate::model::ModelManager;
+use crate::model::app_user::{get_user, AppUser};
+use crate::model::db::Db;
+use crate::model::invoice::{insert_invoice, update_invoice_state, Invoice, InvoiceState};
 use crate::state::AppState;
-use crate::utils::empty_string_as_none;
+use crate::utils::{empty_string_as_none, get_federation_and_client};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,148 +76,148 @@ pub async fn handle_callback(
     State(state): State<AppState>,
 ) -> Result<Json<LnurlCallbackResponse>, AppError> {
     info!("callback called with username: {}", username);
-    if params.amount < MIN_AMOUNT {
+    validate_amount(params.amount)?;
+
+    let user = get_user(&state.db, &username).await?;
+    let (federation_id, client) = get_federation_and_client(&state, &user).await?;
+    let ln = client.get_first_module::<LightningClientModule>();
+
+    let tweak = user.last_tweak + 1;
+    let (op_id, invoice, _) = create_invoice(&ln, &params, &user, tweak).await?;
+
+    AppUser::update_tweak(&state.db, &user, tweak).await?;
+    let invoice = insert_invoice(
+        &state.db,
+        &federation_id,
+        user.id,
+        &op_id,
+        &invoice,
+        tweak,
+        params.amount,
+    )
+    .await?;
+
+    let subscription = subscribe_to_invoice(&ln, op_id).await?;
+    spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
+
+    let verify_url = create_verify_url(&username, &op_id);
+    let response = create_callback_response(invoice.bolt11, verify_url)?;
+
+    Ok(Json(response))
+}
+
+fn validate_amount(amount: u64) -> Result<(), AppError> {
+    if amount < MIN_AMOUNT {
         return Err(AppError {
             error: anyhow::anyhow!("Amount < MIN_AMOUNT"),
             status: StatusCode::BAD_REQUEST,
         });
     }
+    Ok(())
+}
 
-    let user = AppUserBmc::get_by_name(&state.mm, &username).await?;
-    let federation_id = FederationId::from_str(&user.federation_id).map_err(|e| {
-        AppError::new(
-            StatusCode::BAD_REQUEST,
-            anyhow::anyhow!("Invalid federation_id for user {}: {}", user.name, e),
-        )
-    })?;
-
-    let locked_clients = state.fm.clients.lock().await.clone();
-    let client = locked_clients.get(&federation_id).ok_or_else(|| {
-        AppError::new(
-            StatusCode::BAD_REQUEST,
-            anyhow::anyhow!("FederationId not found in multimint map"),
-        )
-    })?;
-
-    let ln = client.get_first_module::<LightningClientModule>();
-
-    let tweak = user.last_tweak + 1;
-
-    let (op_id, pr, _) = ln
-        .create_bolt11_invoice_for_user_tweaked(
-            Amount {
-                msats: params.amount,
-            },
-            Bolt11InvoiceDescription::Direct(&Description::new(
-                params
-                    .comment
-                    .unwrap_or("hermes address payment".to_string()),
-            )?),
-            None,
-            PublicKey::from_str(&user.pubkey)?,
-            tweak as u64,
-            (),
-            None,
-        )
-        .await?;
-
-    AppUserBmc::update(
-        &state.mm,
-        user.id,
-        AppUserForUpdate::new().set_last_tweak(Some(tweak as i64)),
-    )
-    .await?;
-
-    // insert invoice into db for later verification
-    let id = InvoiceBmc::create(
-        &state.mm,
-        InvoiceForCreate {
-            op_id: op_id.fmt_full().to_string(),
-            federation_id: user.federation_id.clone(),
-            app_user_id: user.id,
-            amount: params.amount as i64,
-            bolt11: pr.to_string(),
-            tweak,
+async fn create_invoice(
+    ln: &LightningClientModule,
+    params: &LnurlCallbackParams,
+    user: &AppUser,
+    tweak: i64,
+) -> Result<(OperationId, Bolt11Invoice, [u8; 32])> {
+    ln.create_bolt11_invoice_for_user_tweaked(
+        Amount {
+            msats: params.amount,
         },
+        Bolt11InvoiceDescription::Direct(&Description::new(
+            params
+                .comment
+                .clone()
+                .unwrap_or("hermes address payment".to_string()),
+        )?),
+        None,
+        PublicKey::from_str(&user.pubkey)?,
+        tweak as u64,
+        (),
+        None,
     )
-    .await?;
+    .await
+    .map_err(|e| e.into())
+}
 
-    // create subscription to operation
-    let subscription = ln
-        .subscribe_ln_receive(op_id)
+async fn subscribe_to_invoice(
+    ln: &LightningClientModule,
+    op_id: OperationId,
+) -> Result<UpdateStreamOrOutcome<LnReceiveState>, AppError> {
+    ln.subscribe_ln_receive(op_id)
         .await
-        .expect("subscribing to a just created operation can't fail");
+        .map_err(|e| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e)))
+}
 
-    spawn_invoice_subscription(state, id, user, subscription).await;
-
-    let verify_url = format!(
+fn create_verify_url(username: &str, op_id: &OperationId) -> String {
+    format!(
         "http://{}:{}/lnurlp/{}/verify/{}",
         CONFIG.domain,
         CONFIG.port,
         username,
         op_id.fmt_full().to_string()
-    );
+    )
+}
 
-    let res = LnurlCallbackResponse {
-        pr: pr.to_string(),
+fn create_callback_response(
+    bolt11: String,
+    verify_url: String,
+) -> Result<LnurlCallbackResponse, AppError> {
+    Ok(LnurlCallbackResponse {
+        pr: bolt11,
         success_action: None,
         status: LnurlStatus::Ok,
         reason: None,
         verify: verify_url.parse()?,
         routes: Some(vec![]),
-    };
-
-    Ok(Json(res))
+    })
 }
 
 pub(crate) async fn spawn_invoice_subscription(
     state: AppState,
-    id: i32,
-    user: AppUser,
+    invoice: Invoice,
     subscription: UpdateStreamOrOutcome<LnReceiveState>,
-) {
+) -> Result<()> {
     spawn("waiting for invoice being paid", async move {
         let locked_clients = state.fm.clients.lock().await;
         let client = locked_clients
-            .get(&FederationId::from_str(&user.federation_id).unwrap())
+            .get(&FederationId::from_str(&invoice.federation_id).unwrap())
             .unwrap();
         let mut stream = subscription.into_stream();
         while let Some(op_state) = stream.next().await {
             match op_state {
                 LnReceiveState::Canceled { reason } => {
                     error!("Payment canceled, reason: {:?}", reason);
-                    InvoiceBmc::set_state(&state.mm, id, InvoiceState::Cancelled)
+                    update_invoice_state(&state.db, &invoice.op_id, InvoiceState::Cancelled)
                         .await
-                        .expect("settling invoice can't fail");
-                    break;
+                        .expect("Failed to update invoice state");
                 }
                 LnReceiveState::Claimed => {
                     info!("Payment claimed");
-                    let invoice = InvoiceBmc::set_state(&state.mm, id, InvoiceState::Settled)
+                    update_invoice_state(&state.db, &invoice.op_id, InvoiceState::Settled)
                         .await
-                        .expect("settling invoice can't fail");
-                    notify_user(client, &state.mm, id, invoice.amount as u64, user.clone())
+                        .expect("Failed to update invoice state");
+                    notify_user(client, &state.db, invoice)
                         .await
-                        .expect("notifying user can't fail");
+                        .expect("Failed to notify user");
                     break;
                 }
                 _ => {}
             }
         }
     });
+
+    Ok(())
 }
 
-async fn notify_user(
-    client: &ClientHandleArc,
-    mm: &ModelManager,
-    id: i32,
-    amount: u64,
-    user: AppUser,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn notify_user(client: &ClientHandleArc, db: &Db, invoice: Invoice) -> Result<()> {
+    let user = get_user(db, &invoice.app_user_id.to_string()).await?;
     let mint = client.get_first_module::<MintClientModule>();
     let (operation_id, notes) = mint
         .spend_notes(
-            Amount::from_msats(amount),
+            Amount::from_msats(invoice.amount as u64),
             Duration::from_secs(604800),
             false,
             (),
