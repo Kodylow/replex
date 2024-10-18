@@ -27,7 +27,7 @@ use crate::config::CONFIG;
 use crate::error::AppError;
 use crate::model::app_user::{get_user, AppUser};
 use crate::model::db::Db;
-use crate::model::invoice::{insert_invoice, update_invoice_state, Invoice, InvoiceState};
+use crate::model::invoice::{Invoice, InvoiceForCreate, InvoiceState};
 use crate::state::AppState;
 use crate::utils::{empty_string_as_none, get_federation_and_client};
 
@@ -86,16 +86,16 @@ pub async fn handle_callback(
     let (op_id, invoice, _) = create_invoice(&ln, &params, &user, tweak).await?;
 
     AppUser::update_tweak(&state.db, &user, tweak).await?;
-    let invoice = insert_invoice(
-        &state.db,
-        &federation_id,
-        user.id,
-        &op_id,
-        &invoice,
-        tweak,
-        params.amount,
-    )
-    .await?;
+    let invoice = InvoiceForCreate::builder()
+        .op_id(op_id.fmt_full().to_string())
+        .federation_id(federation_id.to_string())
+        .app_user_id(user.id)
+        .amount(params.amount as i64)
+        .bolt11(invoice.to_string())
+        .tweak(tweak)
+        .state(InvoiceState::Pending)
+        .build()?;
+    let invoice = state.db.invoice().create(invoice).await?;
 
     let subscription = subscribe_to_invoice(&ln, op_id).await?;
     spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
@@ -185,20 +185,26 @@ pub(crate) async fn spawn_invoice_subscription(
         let client = locked_clients
             .get(&FederationId::from_str(&invoice.federation_id).unwrap())
             .unwrap();
+        let invoice_db = state.db.invoice();
         let mut stream = subscription.into_stream();
         while let Some(op_state) = stream.next().await {
             match op_state {
                 LnReceiveState::Canceled { reason } => {
                     error!("Payment canceled, reason: {:?}", reason);
-                    update_invoice_state(&state.db, &invoice.op_id, InvoiceState::Cancelled)
+                    invoice_db
+                        .update_state(invoice.id, InvoiceState::Cancelled)
                         .await
                         .expect("Failed to update invoice state");
                 }
                 LnReceiveState::Claimed => {
                     info!("Payment claimed");
-                    update_invoice_state(&state.db, &invoice.op_id, InvoiceState::Settled)
+                    invoice_db
+                        .update_state(invoice.id, InvoiceState::Settled)
                         .await
-                        .expect("Failed to update invoice state");
+                        .expect(&format!(
+                            "Failed to update invoice state for invoice: {}",
+                            invoice.id
+                        ));
                     notify_user(client, &state.db, invoice)
                         .await
                         .expect("Failed to notify user");

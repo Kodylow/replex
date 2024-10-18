@@ -1,8 +1,4 @@
 use anyhow::Result;
-use multimint::{
-    fedimint_core::{config::FederationId, core::OperationId},
-    fedimint_ln_common::lightning_invoice::Bolt11Invoice,
-};
 use postgres_from_row::FromRow;
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
@@ -61,6 +57,97 @@ impl ToSql for InvoiceState {
         out: &mut bytes::BytesMut,
     ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
         (*self as i32).to_sql_checked(ty, out)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvoiceForCreate {
+    pub op_id: String,
+    pub federation_id: String,
+    pub app_user_id: i32,
+    pub amount: i64,
+    pub bolt11: String,
+    pub tweak: i64,
+    pub state: InvoiceState,
+}
+
+impl InvoiceForCreate {
+    pub fn builder() -> InvoiceForCreateBuilder {
+        InvoiceForCreateBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct InvoiceForCreateBuilder {
+    op_id: Option<String>,
+    federation_id: Option<String>,
+    app_user_id: Option<i32>,
+    amount: Option<i64>,
+    bolt11: Option<String>,
+    tweak: Option<i64>,
+    state: Option<InvoiceState>,
+}
+
+impl InvoiceForCreateBuilder {
+    pub fn op_id(mut self, op_id: String) -> Self {
+        self.op_id = Some(op_id);
+        self
+    }
+
+    pub fn federation_id(mut self, federation_id: String) -> Self {
+        self.federation_id = Some(federation_id);
+        self
+    }
+
+    pub fn app_user_id(mut self, app_user_id: i32) -> Self {
+        self.app_user_id = Some(app_user_id);
+        self
+    }
+
+    pub fn amount(mut self, amount: i64) -> Self {
+        self.amount = Some(amount);
+        self
+    }
+
+    pub fn bolt11(mut self, bolt11: String) -> Self {
+        self.bolt11 = Some(bolt11);
+        self
+    }
+
+    pub fn tweak(mut self, tweak: i64) -> Self {
+        self.tweak = Some(tweak);
+        self
+    }
+
+    pub fn state(mut self, state: InvoiceState) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    pub fn build(self) -> anyhow::Result<InvoiceForCreate> {
+        Ok(InvoiceForCreate {
+            op_id: self
+                .op_id
+                .ok_or_else(|| anyhow::anyhow!("op_id is required"))?,
+            federation_id: self
+                .federation_id
+                .ok_or_else(|| anyhow::anyhow!("federation_id is required"))?,
+            app_user_id: self
+                .app_user_id
+                .ok_or_else(|| anyhow::anyhow!("app_user_id is required"))?,
+            amount: self
+                .amount
+                .ok_or_else(|| anyhow::anyhow!("amount is required"))?,
+            bolt11: self
+                .bolt11
+                .ok_or_else(|| anyhow::anyhow!("bolt11 is required"))?,
+            tweak: self
+                .tweak
+                .ok_or_else(|| anyhow::anyhow!("tweak is required"))?,
+            state: self
+                .state
+                .ok_or_else(|| anyhow::anyhow!("state is required"))?,
+        })
     }
 }
 
@@ -124,44 +211,33 @@ impl InvoiceForUpdateBuilder {
     }
 }
 
-pub async fn insert_invoice(
-    db: &Db,
-    federation_id: &FederationId,
-    user_id: i32,
-    op_id: &OperationId,
-    invoice: &Bolt11Invoice,
-    tweak: i64,
-    amount: u64,
-) -> Result<Invoice, AppError> {
-    let sql = "INSERT INTO invoices (op_id, federation_id, app_user_id, amount, bolt11, tweak, state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
-    let invoice = Invoice {
-        id: 0,
-        op_id: op_id.fmt_full().to_string(),
-        federation_id: federation_id.to_string(),
-        app_user_id: user_id,
-        amount: amount as i64,
-        bolt11: invoice.to_string(),
-        tweak,
-        state: InvoiceState::Pending,
-    };
-    db.query_one::<Invoice>(
-        sql,
-        &[
-            &invoice.op_id,
-            &invoice.federation_id,
-            &invoice.app_user_id,
-            &invoice.amount,
-            &invoice.bolt11,
-            &invoice.tweak,
-            &invoice.state,
-        ],
-    )
-    .await
-    .map_err(|e| e.into())
-}
+pub struct InvoiceDb(pub(crate) Db);
 
-pub async fn update_invoice_state(db: &Db, op_id: &str, state: InvoiceState) -> Result<()> {
-    let sql = "UPDATE invoices SET state = $1 WHERE op_id = $2";
-    let _ = db.execute(sql, &[&state, &op_id]).await?;
-    Ok(())
+impl InvoiceDb {
+    pub async fn create(&self, invoice: InvoiceForCreate) -> Result<Invoice, AppError> {
+        let sql = "INSERT INTO invoices (op_id, federation_id, app_user_id, amount, bolt11, tweak, state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
+        self.0
+            .query_one::<Invoice>(
+                sql,
+                &[
+                    &invoice.op_id,
+                    &invoice.federation_id,
+                    &invoice.app_user_id,
+                    &invoice.amount,
+                    &invoice.bolt11,
+                    &invoice.tweak,
+                    &invoice.state,
+                ],
+            )
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn update_state(&self, id: i32, state: InvoiceState) -> Result<()> {
+        let sql = "UPDATE invoices SET state = $1 WHERE id = $2";
+        let _ = self.0.execute(sql, &[&state, &id]).await?;
+        Ok(())
+    }
+
+    // Add more methods as needed, e.g., get, list, etc.
 }

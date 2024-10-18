@@ -1,3 +1,5 @@
+use super::app_user::UserDb;
+use super::invoice::InvoiceDb;
 use anyhow::Result;
 use deadpool_postgres::{Client, Pool, Runtime};
 use postgres_from_row::FromRow;
@@ -39,6 +41,17 @@ impl Db {
         Ok(())
     }
 
+    // --- START TABLES ---
+    pub fn user(&self) -> UserDb {
+        UserDb(self.clone())
+    }
+
+    pub fn invoice(&self) -> InvoiceDb {
+        InvoiceDb(self.clone())
+    }
+    // --- END TABLES ---
+
+    // --- START QUERIES ---
     pub async fn execute(
         &self,
         sql: &str,
@@ -103,4 +116,5 @@ impl Db {
             .map(T::try_from_row)
             .collect::<Result<_, _>>()?)
     }
+    // --- END QUERIES ---
 }

@@ -182,3 +182,56 @@ pub async fn get_user(db: &Db, username: &str) -> Result<AppUser> {
         .await
         .map_err(|e| e.into())
 }
+
+pub struct UserDb(pub(crate) Db);
+
+impl UserDb {
+    pub async fn create(&self, user: AppUserForCreate) -> Result<AppUser> {
+        let sql = "INSERT INTO app_user (name, pubkey, last_tweak, relays, federation_ids) VALUES ($1, $2, $3, $4, $5) RETURNING *";
+        self.0
+            .query_one::<AppUser>(
+                sql,
+                &[
+                    &user.name,
+                    &user.pubkey,
+                    &user.last_tweak,
+                    &user.relays,
+                    &user.federation_ids,
+                ],
+            )
+            .await
+    }
+
+    pub async fn get(&self, username: &str) -> Result<AppUser> {
+        let sql = "SELECT * FROM app_user WHERE name = $1";
+        self.0.query_one::<AppUser>(sql, &[&username]).await
+    }
+
+    pub async fn update(&self, id: i32, user: AppUserForUpdate) -> Result<AppUser> {
+        let mut updates = Vec::new();
+        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
+        let mut param_count = 1;
+
+        if let Some(name) = &user.name {
+            updates.push(format!("name = ${}", param_count));
+            params.push(name);
+            param_count += 1;
+        }
+        // ... repeat for other fields ...
+
+        let sql = format!(
+            "UPDATE app_user SET {} WHERE id = ${} RETURNING *",
+            updates.join(", "),
+            param_count
+        );
+        params.push(&id);
+
+        self.0.query_one::<AppUser>(&sql, &params).await
+    }
+
+    pub async fn update_tweak(&self, user: &AppUser, tweak: i64) -> Result<()> {
+        let sql = "UPDATE app_user SET last_tweak = $1 WHERE id = $2";
+        self.0.execute(sql, &[&tweak, &user.id]).await?;
+        Ok(())
+    }
+}
