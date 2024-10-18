@@ -6,7 +6,7 @@ use tokio_postgres::Row;
 
 use crate::error::AppError;
 
-use super::db::Db;
+use crate::db::Db;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[repr(i32)]
@@ -211,7 +211,7 @@ impl InvoiceForUpdateBuilder {
     }
 }
 
-pub struct InvoiceDb(pub(crate) Db);
+pub struct InvoiceDb(pub Db);
 
 impl InvoiceDb {
     pub async fn create(&self, invoice: InvoiceForCreate) -> Result<Invoice, AppError> {

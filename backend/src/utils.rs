@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::db::app_user::{AppUser, AppUserForCreate, AppUserForUpdate};
+use crate::db::invoice::{Invoice, InvoiceState};
 use crate::error::AppError;
-use crate::model::app_user::{AppUser, AppUserForCreate, AppUserForUpdate};
-use crate::model::invoice::{Invoice, InvoiceState};
 use crate::router::handlers::lnurlp::callback::spawn_invoice_subscription;
 use crate::state::AppState;
 use anyhow::Result;
@@ -59,14 +59,9 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
             .iter()
             .map(|v| v.as_str().unwrap().to_string())
             .collect::<Vec<String>>();
+        let user_db = state.db.user();
 
-        // Update user if it already exists, keep last_tweak
-        let sql = "SELECT * FROM app_user WHERE name = $1";
-        if let Some(user) = state
-            .db
-            .query_opt::<AppUser>(sql, &[&name.to_string()])
-            .await?
-        {
+        if let Some(user) = user_db.get(&name.to_string()).await? {
             info!("User {} already exists", name);
             let app_user = AppUserForUpdate::builder()
                 .name(name.to_string())
@@ -74,20 +69,7 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
                 .relays(user_relays)
                 .federation_ids(user_federation_ids)
                 .build();
-            let sql = "UPDATE app_user SET name = $1, pubkey = $2, relays = $3, federation_ids = $4 WHERE id = $5";
-            state
-                .db
-                .execute(
-                    sql,
-                    &[
-                        &app_user.name,
-                        &app_user.pubkey,
-                        &app_user.relays,
-                        &app_user.federation_ids,
-                        &user.id,
-                    ],
-                )
-                .await?;
+            user_db.update(user.id, app_user).await?;
         } else {
             info!("User {} does not exist", name);
             let app_user = AppUserForCreate::builder()
@@ -97,20 +79,7 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
                 .federation_ids(user_federation_ids)
                 .last_tweak(0)
                 .build()?;
-            let sql = "INSERT INTO app_user (name, pubkey, relays, federation_ids, last_tweak) VALUES ($1, $2, $3, $4, $5)";
-            state
-                .db
-                .execute(
-                    sql,
-                    &[
-                        &app_user.name,
-                        &app_user.pubkey,
-                        &app_user.relays,
-                        &app_user.federation_ids,
-                        &app_user.last_tweak,
-                    ],
-                )
-                .await?;
+            user_db.create(app_user).await?;
         }
     }
 

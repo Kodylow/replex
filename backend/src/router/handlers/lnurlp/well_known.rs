@@ -11,8 +11,8 @@ use url::Url;
 
 use super::{LnurlStatus, LnurlType};
 use crate::config::CONFIG;
+use crate::db::app_user::AppUser;
 use crate::error::AppError;
-use crate::model::app_user::AppUser;
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize, Debug)]

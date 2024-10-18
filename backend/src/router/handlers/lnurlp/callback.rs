@@ -24,10 +24,10 @@ use url::Url;
 
 use super::LnurlStatus;
 use crate::config::CONFIG;
+use crate::db::app_user::{get_user, AppUser};
+use crate::db::invoice::{Invoice, InvoiceForCreate, InvoiceState};
+use crate::db::Db;
 use crate::error::AppError;
-use crate::model::app_user::{get_user, AppUser};
-use crate::model::db::Db;
-use crate::model::invoice::{Invoice, InvoiceForCreate, InvoiceState};
 use crate::state::AppState;
 use crate::utils::{empty_string_as_none, get_federation_and_client};
 

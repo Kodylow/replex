@@ -3,7 +3,7 @@ use postgres_from_row::FromRow;
 use serde::Serialize;
 use tokio_postgres::Row;
 
-use super::db::Db;
+use crate::db::Db;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct AppUserForCreate {
@@ -183,7 +183,7 @@ pub async fn get_user(db: &Db, username: &str) -> Result<AppUser> {
         .map_err(|e| e.into())
 }
 
-pub struct UserDb(pub(crate) Db);
+pub struct UserDb(pub Db);
 
 impl UserDb {
     pub async fn create(&self, user: AppUserForCreate) -> Result<AppUser> {
@@ -202,9 +202,9 @@ impl UserDb {
             .await
     }
 
-    pub async fn get(&self, username: &str) -> Result<AppUser> {
+    pub async fn get(&self, username: &str) -> Result<Option<AppUser>> {
         let sql = "SELECT * FROM app_user WHERE name = $1";
-        self.0.query_one::<AppUser>(sql, &[&username]).await
+        self.0.query_opt::<AppUser>(sql, &[&username]).await
     }
 
     pub async fn update(&self, id: i32, user: AppUserForUpdate) -> Result<AppUser> {

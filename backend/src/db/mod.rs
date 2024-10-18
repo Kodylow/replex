@@ -1,7 +1,10 @@
-use super::app_user::UserDb;
-use super::invoice::InvoiceDb;
+pub mod app_user;
+pub mod invoice;
+
 use anyhow::Result;
+use app_user::UserDb;
 use deadpool_postgres::{Client, Pool, Runtime};
+use invoice::InvoiceDb;
 use postgres_from_row::FromRow;
 use tokio_postgres::NoTls;
 use tracing::info;
