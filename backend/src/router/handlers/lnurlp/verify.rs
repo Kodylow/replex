@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::LnurlStatus;
-use crate::db::invoice::{Invoice, InvoiceState};
 use crate::error::AppError;
+use crate::model::invoices::{Invoice, InvoiceState};
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize)]

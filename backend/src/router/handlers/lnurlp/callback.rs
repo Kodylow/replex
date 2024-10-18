@@ -24,10 +24,10 @@ use url::Url;
 
 use super::LnurlStatus;
 use crate::config::CONFIG;
-use crate::db::app_user::{get_user, AppUser};
-use crate::db::invoice::{Invoice, InvoiceForCreate, InvoiceState};
-use crate::db::Db;
 use crate::error::AppError;
+use crate::model::invoices::{Invoice, InvoiceForCreate, InvoiceState};
+use crate::model::users::User;
+use crate::model::Db;
 use crate::state::AppState;
 use crate::utils::{empty_string_as_none, get_federation_and_client};
 
@@ -78,32 +78,38 @@ pub async fn handle_callback(
     info!("callback called with username: {}", username);
     validate_amount(params.amount)?;
 
-    let user = get_user(&state.db, &username).await?;
-    let (federation_id, client) = get_federation_and_client(&state, &user).await?;
-    let ln = client.get_first_module::<LightningClientModule>();
+    match state.db.users().get_by_name(&username).await? {
+        Some(user) => {
+            let (federation_id, client) = get_federation_and_client(&state, &user).await?;
+            let ln = client.get_first_module::<LightningClientModule>();
 
-    let tweak = user.last_tweak + 1;
-    let (op_id, invoice, _) = create_invoice(&ln, &params, &user, tweak).await?;
+            let tweak = user.last_tweak + 1;
+            let (op_id, invoice, _) = create_invoice(&ln, &params, &user, tweak).await?;
+            state.db.users().update_tweak(&user, tweak).await?;
+            let invoice = InvoiceForCreate::builder()
+                .op_id(op_id.fmt_full().to_string())
+                .federation_id(federation_id.to_string())
+                .app_user_id(user.id)
+                .amount(params.amount as i64)
+                .bolt11(invoice.to_string())
+                .tweak(tweak)
+                .state(InvoiceState::Pending)
+                .build()?;
+            let invoice = state.db.invoice().create(invoice).await?;
 
-    AppUser::update_tweak(&state.db, &user, tweak).await?;
-    let invoice = InvoiceForCreate::builder()
-        .op_id(op_id.fmt_full().to_string())
-        .federation_id(federation_id.to_string())
-        .app_user_id(user.id)
-        .amount(params.amount as i64)
-        .bolt11(invoice.to_string())
-        .tweak(tweak)
-        .state(InvoiceState::Pending)
-        .build()?;
-    let invoice = state.db.invoice().create(invoice).await?;
+            let subscription = subscribe_to_invoice(&ln, op_id).await?;
+            spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
 
-    let subscription = subscribe_to_invoice(&ln, op_id).await?;
-    spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
+            let verify_url = create_verify_url(&username, &op_id);
+            let response = create_callback_response(invoice.bolt11, verify_url)?;
 
-    let verify_url = create_verify_url(&username, &op_id);
-    let response = create_callback_response(invoice.bolt11, verify_url)?;
-
-    Ok(Json(response))
+            Ok(Json(response))
+        }
+        None => Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            anyhow::anyhow!("User not found"),
+        )),
+    }
 }
 
 fn validate_amount(amount: u64) -> Result<(), AppError> {
@@ -119,7 +125,7 @@ fn validate_amount(amount: u64) -> Result<(), AppError> {
 async fn create_invoice(
     ln: &LightningClientModule,
     params: &LnurlCallbackParams,
-    user: &AppUser,
+    user: &User,
     tweak: i64,
 ) -> Result<(OperationId, Bolt11Invoice, [u8; 32])> {
     ln.create_bolt11_invoice_for_user_tweaked(
@@ -219,7 +225,7 @@ pub(crate) async fn spawn_invoice_subscription(
 }
 
 async fn notify_user(client: &ClientHandleArc, db: &Db, invoice: Invoice) -> Result<()> {
-    let user = get_user(db, &invoice.app_user_id.to_string()).await?;
+    let user = db.users().get(invoice.app_user_id).await?;
     let mint = client.get_first_module::<MintClientModule>();
     let (operation_id, notes) = mint
         .spend_notes(

@@ -1,12 +1,12 @@
+pub mod db;
+
 use anyhow::Result;
 use postgres_from_row::FromRow;
 use serde::Serialize;
 use tokio_postgres::Row;
 
-use crate::db::Db;
-
 #[derive(Debug, Clone, Serialize, Default)]
-pub struct AppUserForCreate {
+pub struct UserForCreate {
     pub name: String,
     pub pubkey: String,
     pub last_tweak: i64,
@@ -14,14 +14,14 @@ pub struct AppUserForCreate {
     pub federation_ids: Vec<String>,
 }
 
-impl AppUserForCreate {
-    pub fn builder() -> AppUserForCreateBuilder {
-        AppUserForCreateBuilder::default()
+impl UserForCreate {
+    pub fn builder() -> UserForCreateBuilder {
+        UserForCreateBuilder::default()
     }
 }
 
 #[derive(Default)]
-pub struct AppUserForCreateBuilder {
+pub struct UserForCreateBuilder {
     name: Option<String>,
     pubkey: Option<String>,
     last_tweak: Option<i64>,
@@ -29,7 +29,7 @@ pub struct AppUserForCreateBuilder {
     federation_ids: Option<Vec<String>>,
 }
 
-impl AppUserForCreateBuilder {
+impl UserForCreateBuilder {
     pub fn name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
@@ -55,8 +55,8 @@ impl AppUserForCreateBuilder {
         self
     }
 
-    pub fn build(self) -> anyhow::Result<AppUserForCreate> {
-        Ok(AppUserForCreate {
+    pub fn build(self) -> anyhow::Result<UserForCreate> {
+        Ok(UserForCreate {
             name: self
                 .name
                 .ok_or_else(|| anyhow::anyhow!("name is required"))?,
@@ -77,7 +77,7 @@ impl AppUserForCreateBuilder {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AppUser {
+pub struct User {
     pub id: i32,
     pub name: String,
     pub pubkey: String,
@@ -86,13 +86,13 @@ pub struct AppUser {
     pub federation_ids: Vec<String>,
 }
 
-impl FromRow for AppUser {
+impl FromRow for User {
     fn from_row(row: &Row) -> Self {
         Self::try_from_row(row).expect("Decoding row failed")
     }
 
     fn try_from_row(row: &Row) -> Result<Self, tokio_postgres::Error> {
-        Ok(AppUser {
+        Ok(User {
             id: row.get("id"),
             name: row.get("name"),
             pubkey: row.get("pubkey"),
@@ -108,7 +108,7 @@ impl FromRow for AppUser {
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
-pub struct AppUserForUpdate {
+pub struct UserForUpdate {
     pub pubkey: Option<String>,
     pub name: Option<String>,
     pub relays: Option<Vec<String>>,
@@ -116,14 +116,14 @@ pub struct AppUserForUpdate {
     pub last_tweak: Option<i64>,
 }
 
-impl AppUserForUpdate {
-    pub fn builder() -> AppUserForUpdateBuilder {
-        AppUserForUpdateBuilder::default()
+impl UserForUpdate {
+    pub fn builder() -> UserForUpdateBuilder {
+        UserForUpdateBuilder::default()
     }
 }
 
 #[derive(Default)]
-pub struct AppUserForUpdateBuilder {
+pub struct UserForUpdateBuilder {
     pubkey: Option<String>,
     name: Option<String>,
     relays: Option<Vec<String>>,
@@ -131,7 +131,7 @@ pub struct AppUserForUpdateBuilder {
     last_tweak: Option<i64>,
 }
 
-impl AppUserForUpdateBuilder {
+impl UserForUpdateBuilder {
     pub fn pubkey(mut self, pubkey: String) -> Self {
         self.pubkey = Some(pubkey);
         self
@@ -157,81 +157,13 @@ impl AppUserForUpdateBuilder {
         self
     }
 
-    pub fn build(self) -> AppUserForUpdate {
-        AppUserForUpdate {
+    pub fn build(self) -> UserForUpdate {
+        UserForUpdate {
             pubkey: self.pubkey,
             name: self.name,
             relays: self.relays,
             federation_ids: self.federation_ids,
             last_tweak: self.last_tweak,
         }
-    }
-}
-
-impl AppUser {
-    pub async fn update_tweak(db: &Db, user: &AppUser, tweak: i64) -> Result<()> {
-        let sql = "UPDATE app_user SET last_tweak = $1 WHERE id = $2";
-        db.execute(sql, &[&tweak, &user.id]).await?;
-        Ok(())
-    }
-}
-
-pub async fn get_user(db: &Db, username: &str) -> Result<AppUser> {
-    let sql = "SELECT * FROM app_user WHERE name = $1";
-    db.query_one::<AppUser>(sql, &[&username])
-        .await
-        .map_err(|e| e.into())
-}
-
-pub struct UserDb(pub Db);
-
-impl UserDb {
-    pub async fn create(&self, user: AppUserForCreate) -> Result<AppUser> {
-        let sql = "INSERT INTO app_user (name, pubkey, last_tweak, relays, federation_ids) VALUES ($1, $2, $3, $4, $5) RETURNING *";
-        self.0
-            .query_one::<AppUser>(
-                sql,
-                &[
-                    &user.name,
-                    &user.pubkey,
-                    &user.last_tweak,
-                    &user.relays,
-                    &user.federation_ids,
-                ],
-            )
-            .await
-    }
-
-    pub async fn get(&self, username: &str) -> Result<Option<AppUser>> {
-        let sql = "SELECT * FROM app_user WHERE name = $1";
-        self.0.query_opt::<AppUser>(sql, &[&username]).await
-    }
-
-    pub async fn update(&self, id: i32, user: AppUserForUpdate) -> Result<AppUser> {
-        let mut updates = Vec::new();
-        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
-        let mut param_count = 1;
-
-        if let Some(name) = &user.name {
-            updates.push(format!("name = ${}", param_count));
-            params.push(name);
-            param_count += 1;
-        }
-        // ... repeat for other fields ...
-
-        let sql = format!(
-            "UPDATE app_user SET {} WHERE id = ${} RETURNING *",
-            updates.join(", "),
-            param_count
-        );
-        params.push(&id);
-
-        self.0.query_one::<AppUser>(&sql, &params).await
-    }
-
-    pub async fn update_tweak(&self, user: &AppUser, tweak: i64) -> Result<()> {
-        let sql = "UPDATE app_user SET last_tweak = $1 WHERE id = $2";
-        self.0.execute(sql, &[&tweak, &user.id]).await?;
-        Ok(())
     }
 }

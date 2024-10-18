@@ -11,7 +11,6 @@ use url::Url;
 
 use super::{LnurlStatus, LnurlType};
 use crate::config::CONFIG;
-use crate::db::app_user::AppUser;
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -65,8 +64,7 @@ pub async fn handle_well_known(
 ) -> Result<Json<LnurlWellKnownResponse>, AppError> {
     // see if username exists in nostr.json
     info!("well_known called with username: {}", username);
-    let sql = "SELECT * FROM app_user WHERE name = $1";
-    match state.db.query_opt::<AppUser>(sql, &[&username]).await? {
+    match state.db.users().get_by_name(&username).await? {
         Some(_) => {
             let res = LnurlWellKnownResponse {
                 callback: format!("https://{}/lnurlp/{}/callback", CONFIG.domain, username)

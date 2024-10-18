@@ -1,13 +1,13 @@
-pub mod app_user;
-pub mod invoice;
+pub mod invoices;
+pub mod users;
 
 use anyhow::Result;
-use app_user::UserDb;
 use deadpool_postgres::{Client, Pool, Runtime};
-use invoice::InvoiceDb;
+use invoices::db::InvoiceDb;
 use postgres_from_row::FromRow;
 use tokio_postgres::NoTls;
 use tracing::info;
+use users::db::UserDb;
 
 #[derive(Clone, Debug)]
 pub struct Db(Pool);
@@ -45,7 +45,7 @@ impl Db {
     }
 
     // --- START TABLES ---
-    pub fn user(&self) -> UserDb {
+    pub fn users(&self) -> UserDb {
         UserDb(self.clone())
     }
 

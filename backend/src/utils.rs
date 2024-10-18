@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
-use crate::db::app_user::{AppUser, AppUserForCreate, AppUserForUpdate};
-use crate::db::invoice::{Invoice, InvoiceState};
 use crate::error::AppError;
+use crate::model::invoices::{Invoice, InvoiceState};
+use crate::model::users::{User, UserForCreate, UserForUpdate};
 use crate::router::handlers::lnurlp::callback::spawn_invoice_subscription;
 use crate::state::AppState;
 use anyhow::Result;
@@ -59,11 +59,11 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
             .iter()
             .map(|v| v.as_str().unwrap().to_string())
             .collect::<Vec<String>>();
-        let user_db = state.db.user();
+        let user_db = state.db.users();
 
-        if let Some(user) = user_db.get(&name.to_string()).await? {
+        if let Some(user) = user_db.get_by_name(&name).await? {
             info!("User {} already exists", name);
-            let app_user = AppUserForUpdate::builder()
+            let app_user = UserForUpdate::builder()
                 .name(name.to_string())
                 .pubkey(pubkey.to_string())
                 .relays(user_relays)
@@ -72,7 +72,7 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
             user_db.update(user.id, app_user).await?;
         } else {
             info!("User {} does not exist", name);
-            let app_user = AppUserForCreate::builder()
+            let app_user = UserForCreate::builder()
                 .name(name.clone())
                 .pubkey(pubkey.to_string())
                 .relays(user_relays)
@@ -146,7 +146,7 @@ pub async fn handle_pending_invoices(state: AppState) -> Result<()> {
 
 pub async fn get_federation_and_client(
     state: &AppState,
-    user: &AppUser,
+    user: &User,
 ) -> Result<(FederationId, ClientHandleArc), AppError> {
     let federation_id = FederationId::from_str(&user.federation_ids[0]).map_err(|e| {
         AppError::new(

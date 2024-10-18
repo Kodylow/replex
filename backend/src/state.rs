@@ -2,7 +2,7 @@ use anyhow::Result;
 use config::CONFIG;
 use multimint::MultiMint;
 
-use crate::{config, db::Db};
+use crate::{config, model::Db};
 
 #[derive(Clone)]
 pub struct AppState {
