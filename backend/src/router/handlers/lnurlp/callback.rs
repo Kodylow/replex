@@ -22,9 +22,9 @@ use url::Url;
 use super::LnurlStatus;
 use crate::config::CONFIG;
 use crate::error::AppError;
-use crate::model::app_user::{AppUser, AppUserBmc, AppUserForUpdate};
-use crate::model::invoice::{InvoiceBmc, InvoiceForCreate, InvoiceState};
-use crate::model::ModelManager;
+use crate::model::app_user::AppUser;
+use crate::model::db::Db;
+use crate::model::invoice::{Invoice, InvoiceState};
 use crate::state::AppState;
 use crate::utils::empty_string_as_none;
 
@@ -80,8 +80,9 @@ pub async fn handle_callback(
         });
     }
 
-    let user = AppUserBmc::get_by_name(&state.mm, &username).await?;
-    let federation_id = FederationId::from_str(&user.federation_id).map_err(|e| {
+    let sql = "SELECT * FROM app_users WHERE name = $1";
+    let user = state.db.query_one::<AppUser>(sql, &[&username]).await?;
+    let federation_id = FederationId::from_str(&user.federation_ids[0]).map_err(|e| {
         AppError::new(
             StatusCode::BAD_REQUEST,
             anyhow::anyhow!("Invalid federation_id for user {}: {}", user.name, e),
@@ -100,7 +101,7 @@ pub async fn handle_callback(
 
     let tweak = user.last_tweak + 1;
 
-    let (op_id, pr, _) = ln
+    let (op_id, invoice, _) = ln
         .create_bolt11_invoice_for_user_tweaked(
             Amount {
                 msats: params.amount,
@@ -118,26 +119,36 @@ pub async fn handle_callback(
         )
         .await?;
 
-    AppUserBmc::update(
-        &state.mm,
-        user.id,
-        AppUserForUpdate::new().set_last_tweak(Some(tweak as i64)),
-    )
-    .await?;
+    let sql = "UPDATE app_users SET last_tweak = $1 WHERE id = $2";
+    state.db.execute(sql, &[&tweak, &user.id]).await?;
 
     // insert invoice into db for later verification
-    let id = InvoiceBmc::create(
-        &state.mm,
-        InvoiceForCreate {
-            op_id: op_id.fmt_full().to_string(),
-            federation_id: user.federation_id.clone(),
-            app_user_id: user.id,
-            amount: params.amount as i64,
-            bolt11: pr.to_string(),
-            tweak,
-        },
-    )
-    .await?;
+    let sql = "INSERT INTO invoices (op_id, federation_id, app_user_id, amount, bolt11, tweak, state) VALUES ($1, $2, $3, $4, $5, $6, $7)";
+    let invoice = Invoice {
+        id: 0,
+        op_id: op_id.fmt_full().to_string(),
+        federation_id: federation_id.to_string(),
+        app_user_id: user.id,
+        amount: params.amount as i64,
+        bolt11: invoice.to_string(),
+        tweak,
+        state: InvoiceState::Pending,
+    };
+    state
+        .db
+        .execute(
+            sql,
+            &[
+                &invoice.op_id,
+                &invoice.federation_id,
+                &invoice.app_user_id,
+                &(invoice.amount as i64),
+                &invoice.bolt11,
+                &invoice.tweak,
+                &invoice.state,
+            ],
+        )
+        .await?;
 
     // create subscription to operation
     let subscription = ln
@@ -145,7 +156,7 @@ pub async fn handle_callback(
         .await
         .expect("subscribing to a just created operation can't fail");
 
-    spawn_invoice_subscription(state, id, user, subscription).await;
+    spawn_invoice_subscription(state, invoice.clone(), subscription).await;
 
     let verify_url = format!(
         "http://{}:{}/lnurlp/{}/verify/{}",
@@ -156,7 +167,7 @@ pub async fn handle_callback(
     );
 
     let res = LnurlCallbackResponse {
-        pr: pr.to_string(),
+        pr: invoice.bolt11,
         success_action: None,
         status: LnurlStatus::Ok,
         reason: None,
@@ -169,31 +180,35 @@ pub async fn handle_callback(
 
 pub(crate) async fn spawn_invoice_subscription(
     state: AppState,
-    id: i32,
-    user: AppUser,
+    invoice: Invoice,
     subscription: UpdateStreamOrOutcome<LnReceiveState>,
 ) {
     spawn("waiting for invoice being paid", async move {
         let locked_clients = state.fm.clients.lock().await;
         let client = locked_clients
-            .get(&FederationId::from_str(&user.federation_id).unwrap())
+            .get(&FederationId::from_str(&invoice.federation_id).unwrap())
             .unwrap();
         let mut stream = subscription.into_stream();
         while let Some(op_state) = stream.next().await {
             match op_state {
                 LnReceiveState::Canceled { reason } => {
                     error!("Payment canceled, reason: {:?}", reason);
-                    InvoiceBmc::set_state(&state.mm, id, InvoiceState::Cancelled)
+                    let sql = "UPDATE invoices SET state = $1 WHERE op_id = $2";
+                    state
+                        .db
+                        .execute(sql, &[&InvoiceState::Cancelled, &invoice.op_id])
                         .await
-                        .expect("settling invoice can't fail");
-                    break;
+                        .expect("cancelling invoice can't fail");
                 }
                 LnReceiveState::Claimed => {
                     info!("Payment claimed");
-                    let invoice = InvoiceBmc::set_state(&state.mm, id, InvoiceState::Settled)
+                    let sql = "UPDATE invoices SET state = $1 WHERE op_id = $2";
+                    state
+                        .db
+                        .execute(sql, &[&InvoiceState::Settled, &invoice.op_id])
                         .await
-                        .expect("settling invoice can't fail");
-                    notify_user(client, &state.mm, id, invoice.amount as u64, user.clone())
+                        .expect("updating invoice state can't fail");
+                    notify_user(client, &state.db, invoice)
                         .await
                         .expect("notifying user can't fail");
                     break;
@@ -204,17 +219,15 @@ pub(crate) async fn spawn_invoice_subscription(
     });
 }
 
-async fn notify_user(
-    client: &ClientHandleArc,
-    mm: &ModelManager,
-    id: i32,
-    amount: u64,
-    user: AppUser,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn notify_user(client: &ClientHandleArc, db: &Db, invoice: Invoice) -> Result<()> {
+    let sql = "SELECT * FROM app_users WHERE id = $1";
+    let user = db
+        .query_one::<AppUser>(sql, &[&invoice.app_user_id])
+        .await?;
     let mint = client.get_first_module::<MintClientModule>();
     let (operation_id, notes) = mint
         .spend_notes(
-            Amount::from_msats(amount),
+            Amount::from_msats(invoice.amount as u64),
             Duration::from_secs(604800),
             false,
             (),

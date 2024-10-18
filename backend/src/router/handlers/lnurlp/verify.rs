@@ -1,11 +1,13 @@
+use anyhow::anyhow;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::LnurlStatus;
 use crate::error::AppError;
-use crate::model::invoice::{InvoiceBmc, InvoiceState};
+use crate::model::invoice::{Invoice, InvoiceState};
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize)]
@@ -28,14 +30,21 @@ pub async fn handle_verify(
     );
 
     // Use the operation id to look up the invoice
-    let invoice = InvoiceBmc::get_by_op_id(&state.mm, &op_id).await?;
+    let sql = "SELECT * FROM invoices WHERE op_id = $1";
+    match state.db.query_opt::<Invoice>(sql, &[&op_id]).await? {
+        Some(invoice) => {
+            let verify_response = LnurlVerifyResponse {
+                status: LnurlStatus::Ok,
+                settled: invoice.state == InvoiceState::Settled,
+                preimage: "".to_string(), // TODO: figure out how to get the preimage from fedimint client
+                pr: invoice.bolt11,
+            };
 
-    let verify_response = LnurlVerifyResponse {
-        status: LnurlStatus::Ok,
-        settled: invoice.state == InvoiceState::Settled,
-        preimage: "".to_string(), // TODO: figure out how to get the preimage from fedimint client
-        pr: invoice.bolt11,
-    };
-
-    Ok(Json(verify_response))
+            Ok(Json(verify_response))
+        }
+        None => Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            anyhow!("Invoice not found"),
+        )),
+    }
 }

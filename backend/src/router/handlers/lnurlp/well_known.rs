@@ -1,4 +1,6 @@
+use anyhow::anyhow;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::Json;
 use multimint::fedimint_core::secp256k1::XOnlyPublicKey;
 use multimint::fedimint_core::Amount;
@@ -10,7 +12,7 @@ use url::Url;
 use super::{LnurlStatus, LnurlType};
 use crate::config::CONFIG;
 use crate::error::AppError;
-use crate::model::app_user::AppUserBmc;
+use crate::model::app_user::AppUser;
 use crate::state::AppState;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -63,19 +65,27 @@ pub async fn handle_well_known(
 ) -> Result<Json<LnurlWellKnownResponse>, AppError> {
     // see if username exists in nostr.json
     info!("well_known called with username: {}", username);
-    let _app_user = AppUserBmc::get_by_name(&state.mm, &username).await?;
+    let sql = "SELECT * FROM app_users WHERE name = $1";
+    match state.db.query_opt::<AppUser>(sql, &[&username]).await? {
+        Some(_) => {
+            let res = LnurlWellKnownResponse {
+                callback: format!("https://{}/lnurlp/{}/callback", CONFIG.domain, username)
+                    .parse()?,
+                max_sendable: Amount { msats: 100000 },
+                min_sendable: Amount { msats: 1000 },
+                metadata: "".to_string(),
+                comment_allowed: None,
+                tag: LnurlType::PayRequest,
+                status: LnurlStatus::Ok,
+                nostr_pubkey: None,
+                allows_nostr: false,
+            };
 
-    let res = LnurlWellKnownResponse {
-        callback: format!("https://{}/lnurlp/{}/callback", CONFIG.domain, username).parse()?,
-        max_sendable: Amount { msats: 100000 },
-        min_sendable: Amount { msats: 1000 },
-        metadata: "".to_string(),
-        comment_allowed: None,
-        tag: LnurlType::PayRequest,
-        status: LnurlStatus::Ok,
-        nostr_pubkey: None,
-        allows_nostr: false,
-    };
-
-    Ok(Json(res))
+            Ok(Json(res))
+        }
+        None => Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            anyhow!("User not found"),
+        )),
+    }
 }

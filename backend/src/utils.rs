@@ -1,22 +1,19 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
-use crate::model::app_user::AppUserForUpdate;
+use crate::model::app_user::{AppUser, AppUserForUpdate};
+use crate::model::invoice::Invoice;
 use crate::state::AppState;
 use crate::{
-    model::{
-        app_user::{AppUserBmc, AppUserForCreate},
-        invoice::InvoiceBmc,
-    },
+    model::app_user::AppUserForCreate,
     router::handlers::lnurlp::callback::spawn_invoice_subscription,
 };
 use anyhow::Result;
-use itertools::Itertools;
 use multimint::{fedimint_core::config::FederationId, fedimint_ln_client::LightningClientModule};
 use serde::{de, Deserialize, Deserializer};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::fs;
+use tokio::fs;
+use tracing::error;
 
 pub fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
 where
@@ -33,7 +30,7 @@ where
 
 /// Loads users and keys from nostr.json
 pub async fn load_users_and_keys(state: AppState) -> Result<()> {
-    let json_content = fs::read_to_string("backend/nostr.json")?;
+    let json_content = fs::read_to_string("nostr.json").await?;
     let json: Value = serde_json::from_str(&json_content)?;
 
     let names = json["names"]
@@ -62,23 +59,54 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
             .collect::<Vec<String>>();
 
         // Update user if it already exists, keep last_tweak
-        if let Ok(user) = AppUserBmc::get_by_name(&state.mm, name.as_str()).await {
-            let app_user = AppUserForUpdate::new()
-                .set_pubkey(Some(pubkey.to_string()))
-                .set_name(Some(name.to_string()))
-                .set_relay(Some(user_relays[0].clone()))
-                .set_federation_id(Some(user_federation_ids[0].clone()));
-            AppUserBmc::update(&state.mm, user.id, app_user).await?;
-        // Create user if it doesn't exist
+        let sql = "SELECT * FROM app_users WHERE name = $1";
+        if let Some(user) = state
+            .db
+            .query_opt::<AppUser>(sql, &[&name.to_string()])
+            .await?
+        {
+            let app_user = AppUserForUpdate::builder()
+                .name(name.to_string())
+                .pubkey(pubkey.to_string())
+                .relays(user_relays)
+                .federation_ids(user_federation_ids)
+                .build();
+            let sql = "UPDATE app_users SET name = $1, pubkey = $2, relays = $3, federation_ids = $4 WHERE id = $5";
+            state
+                .db
+                .execute(
+                    sql,
+                    &[
+                        &app_user.name,
+                        &app_user.pubkey,
+                        &app_user.relays,
+                        &app_user.federation_ids,
+                        &user.id,
+                    ],
+                )
+                .await?;
         } else {
-            let app_user = AppUserForCreate {
-                name: name.clone(),
-                pubkey: pubkey.to_string(),
-                relay: user_relays[0].clone(),
-                federation_id: user_federation_ids[0].clone(),
-                last_tweak: 0, // Set to 0 for new users
-            };
-            AppUserBmc::create(&state.mm, app_user).await?;
+            let app_user = AppUserForCreate::builder()
+                .name(name.clone())
+                .pubkey(pubkey.to_string())
+                .relays(user_relays)
+                .federation_ids(user_federation_ids)
+                .last_tweak(0)
+                .build()?;
+            let sql = "INSERT INTO app_users (name, pubkey, relays, federation_ids, last_tweak) VALUES ($1, $2, $3, $4, $5)";
+            state
+                .db
+                .execute(
+                    sql,
+                    &[
+                        &app_user.name,
+                        &app_user.pubkey,
+                        &app_user.relays,
+                        &app_user.federation_ids,
+                        &app_user.last_tweak,
+                    ],
+                )
+                .await?;
         }
     }
 
@@ -87,37 +115,34 @@ pub async fn load_users_and_keys(state: AppState) -> Result<()> {
 
 /// Starts subscription for all pending invoices from previous run
 pub async fn handle_pending_invoices(state: AppState) -> Result<()> {
-    let invoices = InvoiceBmc::get_pending(&state.mm).await?;
-
     // Group invoices by federation_id
-    let invoices_by_federation = invoices
-        .into_iter()
-        .chunk_by(|i| i.federation_id.clone())
-        .into_iter()
-        .map(|(federation_id, invs)| (federation_id, invs.collect::<Vec<_>>()))
-        .collect::<HashMap<_, _>>();
+    let sql = "SELECT * FROM invoices WHERE state = 'pending' GROUP BY federation_id";
+    let invoices_by_federation = state.db.query_group_by::<Invoice>(sql, &[]).await?;
 
     for (federation_id, invoices) in invoices_by_federation {
         // Get the corresponding multimint client for the federation_id
-        if let Ok(federation_id) = FederationId::from_str(&federation_id) {
-            if let Some(client) = state.fm.clients.lock().await.get(&federation_id) {
-                let ln = client.get_first_module::<LightningClientModule>();
-                for invoice in invoices {
-                    // Create subscription to operation if it exists
-                    if let Ok(subscription) = ln
-                        .subscribe_ln_receive(invoice.op_id.parse().expect("invalid op_id"))
-                        .await
-                    {
-                        let user = AppUserBmc::get(&state.mm, invoice.app_user_id).await?;
-                        spawn_invoice_subscription(
-                            state.clone(),
-                            invoice.id,
-                            user.clone(),
-                            subscription,
-                        )
-                        .await;
+        match FederationId::from_str(&federation_id) {
+            Ok(federation_id) => {
+                if let Some(client) = state.fm.clients.lock().await.get(&federation_id) {
+                    let ln = client.get_first_module::<LightningClientModule>();
+                    for invoice in invoices {
+                        // Create subscription to operation if it exists
+                        if let Ok(subscription) = ln
+                            .subscribe_ln_receive(invoice.op_id.parse().expect("invalid op_id"))
+                            .await
+                        {
+                            spawn_invoice_subscription(
+                                state.clone(),
+                                invoice.clone(),
+                                subscription,
+                            )
+                            .await;
+                        }
                     }
                 }
+            }
+            Err(e) => {
+                error!("Invalid federation_id: {}", e);
             }
         }
     }

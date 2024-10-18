@@ -1,117 +1,155 @@
-#![allow(dead_code)]
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+use postgres_from_row::FromRow;
 use serde::Serialize;
-use sqlb::{Fields, HasFields};
-use sqlx::FromRow;
+use tokio_postgres::Row;
 
-use super::base::{self, DbBmc};
-use super::ModelManager;
-
-#[derive(Debug, Clone, Fields, FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AppUser {
     pub id: i32,
     pub name: String,
     pub pubkey: String,
     pub last_tweak: i64,
-    pub relay: String,
-    pub federation_id: String,
+    pub relays: Vec<String>,
+    pub federation_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Fields, FromRow, Serialize)]
+impl FromRow for AppUser {
+    fn from_row(row: &Row) -> Self {
+        Self::try_from_row(row).expect("Decoding row failed")
+    }
+
+    fn try_from_row(row: &Row) -> Result<Self, tokio_postgres::Error> {
+        Ok(AppUser {
+            id: row.get("id"),
+            name: row.get("name"),
+            pubkey: row.get("pubkey"),
+            last_tweak: row.get("last_tweak"),
+            relays: row.get::<_, Vec<String>>("relays"),
+            federation_ids: row
+                .get::<_, Vec<String>>("federation_ids")
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        })
+    }
+}
 pub struct AppUserForCreate {
     pub name: String,
     pub pubkey: String,
-    pub relay: String,
-    pub federation_id: String,
+    pub relays: Vec<String>,
+    pub federation_ids: Vec<String>,
     pub last_tweak: i64,
 }
 
-#[derive(Debug, Clone, Fields, FromRow, Serialize)]
+impl AppUserForCreate {
+    pub fn builder() -> AppUserForCreateBuilder {
+        AppUserForCreateBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct AppUserForCreateBuilder {
+    name: Option<String>,
+    pubkey: Option<String>,
+    relays: Option<Vec<String>>,
+    federation_ids: Option<Vec<String>>,
+    last_tweak: Option<i64>,
+}
+
+impl AppUserForCreateBuilder {
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    pub fn pubkey(mut self, pubkey: String) -> Self {
+        self.pubkey = Some(pubkey);
+        self
+    }
+
+    pub fn relays(mut self, relays: Vec<String>) -> Self {
+        self.relays = Some(relays);
+        self
+    }
+
+    pub fn federation_ids(mut self, federation_ids: Vec<String>) -> Self {
+        self.federation_ids = Some(federation_ids);
+        self
+    }
+
+    pub fn last_tweak(mut self, last_tweak: i64) -> Self {
+        self.last_tweak = Some(last_tweak);
+        self
+    }
+
+    pub fn build(self) -> Result<AppUserForCreate> {
+        Ok(AppUserForCreate {
+            name: self.name.expect("name is required"),
+            pubkey: self.pubkey.expect("pubkey is required"),
+            relays: self.relays.expect("relays are required"),
+            federation_ids: self.federation_ids.expect("federation_ids are required"),
+            last_tweak: self.last_tweak.expect("last_tweak is required"),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct AppUserForUpdate {
     pub pubkey: Option<String>,
     pub name: Option<String>,
-    pub relay: Option<String>,
-    pub federation_id: Option<String>,
+    pub relays: Option<Vec<String>>,
+    pub federation_ids: Option<Vec<String>>,
     pub last_tweak: Option<i64>,
 }
 
 impl AppUserForUpdate {
-    pub fn new() -> Self {
-        Self {
-            pubkey: None,
-            name: None,
-            relay: None,
-            federation_id: None,
-            last_tweak: None,
+    pub fn builder() -> AppUserForUpdateBuilder {
+        AppUserForUpdateBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct AppUserForUpdateBuilder {
+    pubkey: Option<String>,
+    name: Option<String>,
+    relays: Option<Vec<String>>,
+    federation_ids: Option<Vec<String>>,
+    last_tweak: Option<i64>,
+}
+
+impl AppUserForUpdateBuilder {
+    pub fn pubkey(mut self, pubkey: String) -> Self {
+        self.pubkey = Some(pubkey);
+        self
+    }
+
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    pub fn relays(mut self, relays: Vec<String>) -> Self {
+        self.relays = Some(relays);
+        self
+    }
+
+    pub fn federation_ids(mut self, federation_ids: Vec<String>) -> Self {
+        self.federation_ids = Some(federation_ids);
+        self
+    }
+
+    pub fn last_tweak(mut self, last_tweak: i64) -> Self {
+        self.last_tweak = Some(last_tweak);
+        self
+    }
+
+    pub fn build(self) -> AppUserForUpdate {
+        AppUserForUpdate {
+            pubkey: self.pubkey,
+            name: self.name,
+            relays: self.relays,
+            federation_ids: self.federation_ids,
+            last_tweak: self.last_tweak,
         }
-    }
-
-    pub fn set_pubkey(mut self, pubkey: Option<String>) -> Self {
-        self.pubkey = pubkey;
-        self
-    }
-
-    pub fn set_name(mut self, name: Option<String>) -> Self {
-        self.name = name;
-        self
-    }
-
-    pub fn set_relay(mut self, relay: Option<String>) -> Self {
-        self.relay = relay;
-        self
-    }
-
-    pub fn set_federation_id(mut self, federation_id: Option<String>) -> Self {
-        self.federation_id = federation_id;
-        self
-    }
-
-    pub fn set_last_tweak(mut self, last_tweak: Option<i64>) -> Self {
-        self.last_tweak = last_tweak;
-        self
-    }
-}
-pub struct AppUserBmc;
-
-impl DbBmc for AppUserBmc {
-    const TABLE: &'static str = "app_user";
-}
-
-impl AppUserBmc {
-    pub async fn create(mm: &ModelManager, user_c: AppUserForCreate) -> Result<i32> {
-        base::create::<Self, _>(mm, user_c).await
-    }
-
-    pub async fn get(mm: &ModelManager, id: i32) -> Result<AppUser> {
-        base::get::<Self, _>(mm, id).await
-    }
-
-    pub async fn get_by_name(mm: &ModelManager, name: &str) -> Result<AppUser> {
-        let user: AppUser = sqlb::select()
-            .table(Self::TABLE)
-            .columns(AppUser::field_names())
-            .and_where("name", "=", name)
-            .fetch_optional(mm.db())
-            .await?
-            .ok_or(anyhow!(
-                "User not found in table '{}', {}: {}",
-                Self::TABLE,
-                "name",
-                name
-            ))?;
-
-        Ok(user)
-    }
-
-    pub async fn list(mm: &ModelManager) -> Result<Vec<AppUser>> {
-        base::list::<Self, _>(mm).await
-    }
-
-    pub async fn update(mm: &ModelManager, id: i32, user_u: AppUserForUpdate) -> Result<()> {
-        base::update::<Self, _>(mm, id, user_u).await
-    }
-
-    pub async fn delete(mm: &ModelManager, id: i32) -> Result<()> {
-        base::delete::<Self>(mm, id).await
     }
 }
