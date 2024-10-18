@@ -15,3 +15,8 @@ export type LnReceiveState =
   | "funded"
   | "awaiting_funds"
   | "claimed";
+
+export type PayType = {
+  type: "Internal" | "Lightning";
+  operation_id: string;
+};

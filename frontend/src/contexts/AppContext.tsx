@@ -1,6 +1,14 @@
-import React, { createContext, useReducer, ReactNode, useEffect } from "react";
+import React, {
+  createContext,
+  useReducer,
+  ReactNode,
+  useEffect,
+  useContext,
+} from "react";
 import { Tab, Screen, APP_ACTION_TYPE, User } from "../types";
 import { useToast } from "@/hooks/use-toast";
+import { ReceiveContext } from "./ReceiveContext";
+import { SendContext } from "./SendContext";
 
 interface AppState {
   activeTab: Tab;
@@ -16,7 +24,8 @@ export type AppAction =
   | { type: APP_ACTION_TYPE.SET_LOGGED_IN; payload: boolean }
   | { type: APP_ACTION_TYPE.SET_USER; payload: User | null }
   | { type: APP_ACTION_TYPE.SET_ERROR; payload: string | null }
-  | { type: "INIT"; payload: AppState };
+  | { type: "INIT"; payload: AppState }
+  | { type: APP_ACTION_TYPE.CLEAR_TRANSACTION_STATES };
 
 export interface AppContextValue {
   state: AppState;
@@ -58,6 +67,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         return { ...state, error: action.payload };
       case "INIT":
         return action.payload;
+      case APP_ACTION_TYPE.CLEAR_TRANSACTION_STATES:
+        return { ...state };
       default:
         return state;
     }
@@ -81,6 +92,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
 }) => {
   const [state, dispatch] = useReducer(appReducer, makeInitialState());
   const { toast } = useToast();
+  const receiveContext = useContext(ReceiveContext);
+  const sendContext = useContext(SendContext);
 
   useEffect(() => {
     chrome.storage.local.get(["appState"], (result) => {
@@ -101,6 +114,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
       dispatch({ type: APP_ACTION_TYPE.SET_ERROR, payload: null });
     }
   }, [state.error, toast]);
+
+  useEffect(() => {
+    if (
+      state.currentScreen === Screen.Home ||
+      (state.currentScreen !== Screen.Receive &&
+        state.currentScreen !== Screen.Send)
+    ) {
+      dispatch({ type: APP_ACTION_TYPE.CLEAR_TRANSACTION_STATES });
+      receiveContext.resetState();
+      sendContext.resetState();
+    }
+  }, [state.currentScreen, receiveContext, sendContext]);
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

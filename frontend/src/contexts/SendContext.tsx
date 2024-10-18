@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useState } from "react";
-import { WalletContext, Transaction } from "./WalletContext";
+import { WalletContext, SendTransaction } from "./WalletContext";
 import { WALLET_ACTION_TYPE } from "@/types";
 
 interface SendContextValue {
@@ -34,13 +34,14 @@ export const SendProvider: React.FC<{ children: React.ReactNode }> = ({
         const result = await wallet.lightning.payInvoice(invoice);
 
         // Add transaction to history
-        const transaction: Transaction = {
+        const transaction: SendTransaction = {
           id: result.contract_id,
           type: "send",
           // TODO: Get amount from invoice with bolt11 lib
           amount: 0,
           timestamp: Date.now(),
           invoice: invoice,
+          outgoingLightningPayment: result,
         };
         dispatch({
           type: WALLET_ACTION_TYPE.ADD_TRANSACTION,

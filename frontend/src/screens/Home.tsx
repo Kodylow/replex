@@ -7,14 +7,24 @@ import ReceiveScreen from "./Receive";
 import { Screen } from "../types";
 import { useAppCurrentScreen, useAppSetCurrentScreen } from "@/hooks/useApp";
 import { useWalletInstance } from "@/hooks/useWallet";
+import { Transactions } from "@/components/Transactions";
+import { SendProvider } from "@/contexts/SendContext";
+import { ReceiveProvider } from "@/contexts/ReceiveContext";
 
 const useIsOpen = () => {
   const wallet = useWalletInstance();
   const [open, setIsOpen] = useState(false);
 
   const checkIsOpen = useCallback(() => {
-    if (open !== wallet.isOpen()) {
-      setIsOpen(wallet.isOpen());
+    // Check if the wallet object has an isOpen method
+    if (wallet && typeof wallet.isOpen === "function") {
+      const isOpenNow = wallet.isOpen();
+      if (open !== isOpenNow) {
+        setIsOpen(isOpenNow);
+      }
+    } else {
+      // If there's no isOpen method, assume it's always open
+      setIsOpen(true);
     }
   }, [open, wallet]);
 
@@ -30,14 +40,18 @@ const useBalance = (checkIsOpen: () => void) => {
   const [balance, setBalance] = useState(0);
 
   useEffect(() => {
-    const unsubscribe = wallet.balance.subscribeBalance((newBalance) => {
-      checkIsOpen();
-      setBalance(newBalance);
-    });
+    if (wallet && typeof wallet.balance.subscribeBalance === "function") {
+      const unsubscribe = wallet.balance.subscribeBalance((newBalance) => {
+        checkIsOpen();
+        setBalance(newBalance);
+      });
 
-    return () => {
-      unsubscribe();
-    };
+      return () => {
+        if (typeof unsubscribe === "function") {
+          unsubscribe();
+        }
+      };
+    }
   }, [checkIsOpen, wallet]);
 
   return balance;
@@ -52,26 +66,33 @@ export default function HomeScreen() {
   const renderScreen = () => {
     switch (currentScreen) {
       case Screen.Send:
-        return <SendScreen onComplete={() => setCurrentScreen(Screen.Home)} />;
+        return (
+          <SendProvider>
+            <SendScreen onComplete={() => setCurrentScreen(Screen.Home)} />
+          </SendProvider>
+        );
       case Screen.Receive:
         return (
-          <ReceiveScreen onComplete={() => setCurrentScreen(Screen.Home)} />
+          <ReceiveProvider>
+            <ReceiveScreen onComplete={() => setCurrentScreen(Screen.Home)} />
+          </ReceiveProvider>
         );
       default:
         return (
-          <>
+          <div className="flex flex-col gap-4">
             <BalanceDisplay balance={balance} />
             <ActionButtons
               onSendClick={() => setCurrentScreen(Screen.Send)}
               onReceiveClick={() => setCurrentScreen(Screen.Receive)}
             />
-          </>
+            <Transactions />
+          </div>
         );
     }
   };
 
   return (
-    <Card className="w-full max-w-md mx-auto border-none">
+    <Card className="w-full border-none">
       <CardContent>{renderScreen()}</CardContent>
     </Card>
   );

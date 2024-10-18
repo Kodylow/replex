@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,15 +8,17 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Tab, Screen } from "../types";
+import { Tab, Screen, APP_ACTION_TYPE } from "../types";
 import {
   useAppActiveTab,
   useAppSetActiveTab,
   useAppSetCurrentScreen,
   useAppUser,
 } from "../hooks/useApp";
+import { AppContext } from "@/contexts/AppContext";
 
 export default function Header() {
+  const { dispatch } = useContext(AppContext);
   const activeTab = useAppActiveTab();
   const setActiveTab = useAppSetActiveTab();
   const setCurrentScreen = useAppSetCurrentScreen();
@@ -31,6 +33,7 @@ export default function Header() {
         onClick={() => {
           setActiveTab(Tab.Wallet);
           setCurrentScreen(Screen.Home);
+          dispatch({ type: APP_ACTION_TYPE.CLEAR_TRANSACTION_STATES });
         }}
       >
         repl-ex

@@ -11,8 +11,8 @@ function Content() {
   return (
     <Layout>
       <Header />
-      <main className="flex-grow p-6">
-        <div className="max-w-4xl mx-auto">
+      <main className="flex-grow">
+        <div className="mx-auto">
           {activeTab === Tab.Wallet ? <HomeScreen /> : <SettingsScreen />}
         </div>
       </main>
