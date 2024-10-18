@@ -1,35 +1,21 @@
-use std::str::FromStr;
-use std::time::Duration;
-
 use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use futures::StreamExt;
-use multimint::fedimint_client::oplog::UpdateStreamOrOutcome;
-use multimint::fedimint_client::ClientHandleArc;
-use multimint::fedimint_core::config::FederationId;
-use multimint::fedimint_core::core::OperationId;
-use multimint::fedimint_core::secp256k1::PublicKey;
-use multimint::fedimint_core::task::spawn;
-use multimint::fedimint_core::Amount;
-use multimint::fedimint_ln_client::{LightningClientModule, LnReceiveState};
-use multimint::fedimint_ln_common::lightning_invoice::{
-    Bolt11Invoice, Bolt11InvoiceDescription, Description,
-};
-use multimint::fedimint_mint_client::MintClientModule;
+use multimint::fedimint_ln_client::LightningClientModule;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::info;
 use url::Url;
 
 use super::LnurlStatus;
-use crate::config::CONFIG;
 use crate::error::AppError;
-use crate::model::invoices::{Invoice, InvoiceForCreate, InvoiceState};
-use crate::model::users::User;
-use crate::model::Db;
+use crate::model::invoices::{InvoiceForCreate, InvoiceState};
 use crate::state::AppState;
-use crate::utils::{empty_string_as_none, get_federation_and_client};
+use crate::utils::lnurl::{
+    create_callback_response, create_invoice, create_verify_url, subscribe_to_invoice,
+    validate_amount,
+};
+use crate::utils::{empty_string_as_none, get_federation_and_client, spawn_invoice_subscription};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,7 +86,7 @@ pub async fn handle_callback(
             let subscription = subscribe_to_invoice(&ln, op_id).await?;
             spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
 
-            let verify_url = create_verify_url(&username, &op_id);
+            let verify_url = create_verify_url(&username, &op_id)?;
             let response = create_callback_response(invoice.bolt11, verify_url)?;
 
             Ok(Json(response))
@@ -110,131 +96,4 @@ pub async fn handle_callback(
             anyhow::anyhow!("User not found"),
         )),
     }
-}
-
-fn validate_amount(amount: u64) -> Result<(), AppError> {
-    if amount < MIN_AMOUNT {
-        return Err(AppError {
-            error: anyhow::anyhow!("Amount < MIN_AMOUNT"),
-            status: StatusCode::BAD_REQUEST,
-        });
-    }
-    Ok(())
-}
-
-async fn create_invoice(
-    ln: &LightningClientModule,
-    params: &LnurlCallbackParams,
-    user: &User,
-    tweak: i64,
-) -> Result<(OperationId, Bolt11Invoice, [u8; 32])> {
-    ln.create_bolt11_invoice_for_user_tweaked(
-        Amount {
-            msats: params.amount,
-        },
-        Bolt11InvoiceDescription::Direct(&Description::new(
-            params
-                .comment
-                .clone()
-                .unwrap_or("hermes address payment".to_string()),
-        )?),
-        None,
-        PublicKey::from_str(&user.pubkey)?,
-        tweak as u64,
-        (),
-        None,
-    )
-    .await
-    .map_err(|e| e.into())
-}
-
-async fn subscribe_to_invoice(
-    ln: &LightningClientModule,
-    op_id: OperationId,
-) -> Result<UpdateStreamOrOutcome<LnReceiveState>, AppError> {
-    ln.subscribe_ln_receive(op_id)
-        .await
-        .map_err(|e| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e)))
-}
-
-fn create_verify_url(username: &str, op_id: &OperationId) -> String {
-    format!(
-        "http://{}:{}/lnurlp/{}/verify/{}",
-        CONFIG.domain,
-        CONFIG.port,
-        username,
-        op_id.fmt_full().to_string()
-    )
-}
-
-fn create_callback_response(
-    bolt11: String,
-    verify_url: String,
-) -> Result<LnurlCallbackResponse, AppError> {
-    Ok(LnurlCallbackResponse {
-        pr: bolt11,
-        success_action: None,
-        status: LnurlStatus::Ok,
-        reason: None,
-        verify: verify_url.parse()?,
-        routes: Some(vec![]),
-    })
-}
-
-pub(crate) async fn spawn_invoice_subscription(
-    state: AppState,
-    invoice: Invoice,
-    subscription: UpdateStreamOrOutcome<LnReceiveState>,
-) -> Result<()> {
-    spawn("waiting for invoice being paid", async move {
-        let locked_clients = state.fm.clients.lock().await;
-        let client = locked_clients
-            .get(&FederationId::from_str(&invoice.federation_id).unwrap())
-            .unwrap();
-        let invoice_db = state.db.invoice();
-        let mut stream = subscription.into_stream();
-        while let Some(op_state) = stream.next().await {
-            match op_state {
-                LnReceiveState::Canceled { reason } => {
-                    error!("Payment canceled, reason: {:?}", reason);
-                    invoice_db
-                        .update_state(invoice.id, InvoiceState::Cancelled)
-                        .await
-                        .expect("Failed to update invoice state");
-                }
-                LnReceiveState::Claimed => {
-                    info!("Payment claimed");
-                    invoice_db
-                        .update_state(invoice.id, InvoiceState::Settled)
-                        .await
-                        .expect(&format!(
-                            "Failed to update invoice state for invoice: {}",
-                            invoice.id
-                        ));
-                    notify_user(client, &state.db, invoice)
-                        .await
-                        .expect("Failed to notify user");
-                    break;
-                }
-                _ => {}
-            }
-        }
-    });
-
-    Ok(())
-}
-
-async fn notify_user(client: &ClientHandleArc, db: &Db, invoice: Invoice) -> Result<()> {
-    let user = db.users().get(invoice.app_user_id).await?;
-    let mint = client.get_first_module::<MintClientModule>();
-    let (operation_id, notes) = mint
-        .spend_notes(
-            Amount::from_msats(invoice.amount as u64),
-            Duration::from_secs(604800),
-            false,
-            (),
-        )
-        .await?;
-
-    todo!()
 }

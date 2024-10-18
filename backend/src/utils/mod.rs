@@ -1,3 +1,4 @@
+pub mod lnurl;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -5,11 +6,15 @@ use std::str::FromStr;
 use crate::error::AppError;
 use crate::model::invoices::{Invoice, InvoiceState};
 use crate::model::users::{User, UserForCreate, UserForUpdate};
-use crate::router::handlers::lnurlp::callback::spawn_invoice_subscription;
 use crate::state::AppState;
 use anyhow::Result;
 use axum::http::StatusCode;
+use futures::StreamExt;
+use lnurl::notify_user;
+use multimint::fedimint_client::oplog::UpdateStreamOrOutcome;
 use multimint::fedimint_client::ClientHandleArc;
+use multimint::fedimint_core::task::spawn;
+use multimint::fedimint_ln_client::LnReceiveState;
 use multimint::{fedimint_core::config::FederationId, fedimint_ln_client::LightningClientModule};
 use serde::{de, Deserialize, Deserializer};
 use serde_json::Value;
@@ -164,4 +169,47 @@ pub async fn get_federation_and_client(
     })?;
 
     Ok((federation_id, client.clone()))
+}
+
+pub async fn spawn_invoice_subscription(
+    state: AppState,
+    invoice: Invoice,
+    subscription: UpdateStreamOrOutcome<LnReceiveState>,
+) -> Result<()> {
+    spawn("waiting for invoice being paid", async move {
+        let locked_clients = state.fm.clients.lock().await;
+        let client = locked_clients
+            .get(&FederationId::from_str(&invoice.federation_id).unwrap())
+            .unwrap();
+        let invoice_db = state.db.invoice();
+        let mut stream = subscription.into_stream();
+        while let Some(op_state) = stream.next().await {
+            match op_state {
+                LnReceiveState::Canceled { reason } => {
+                    error!("Payment canceled, reason: {:?}", reason);
+                    invoice_db
+                        .update_state(invoice.id, InvoiceState::Cancelled)
+                        .await
+                        .expect("Failed to update invoice state");
+                }
+                LnReceiveState::Claimed => {
+                    info!("Payment claimed");
+                    invoice_db
+                        .update_state(invoice.id, InvoiceState::Settled)
+                        .await
+                        .expect(&format!(
+                            "Failed to update invoice state for invoice: {}",
+                            invoice.id
+                        ));
+                    notify_user(client, &state.db, invoice)
+                        .await
+                        .expect("Failed to notify user");
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(())
 }
