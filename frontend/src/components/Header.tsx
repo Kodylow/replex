@@ -1,4 +1,4 @@
-import { useState, useContext } from "react";
+import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,14 +15,12 @@ import {
   useAppSetCurrentScreen,
   useAppUser,
 } from "../hooks/useApp";
-import { WalletContext } from "../contexts/WalletContext";
 
 export default function Header() {
   const activeTab = useAppActiveTab();
   const setActiveTab = useAppSetActiveTab();
   const setCurrentScreen = useAppSetCurrentScreen();
   const [isOpen, setIsOpen] = useState(false);
-  const { state: walletState } = useContext(WalletContext);
   const user = useAppUser();
   console.log("user", user);
 
@@ -41,12 +39,6 @@ export default function Header() {
         <p className="text-xs text-muted-foreground">{user.name}@repl-ex.com</p>
       )}
       <div className="flex items-center">
-        <div
-          className={`w-2 h-2 rounded-full mr-2 ${
-            walletState.isOpen ? "bg-green-500" : "bg-red-500"
-          }`}
-          title={walletState.isOpen ? "Wallet open" : "Wallet not open"}
-        ></div>
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
           <SheetTrigger asChild>
             <Button

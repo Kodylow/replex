@@ -1,11 +1,13 @@
 import React, { createContext, useReducer, ReactNode, useEffect } from "react";
 import { Tab, Screen, APP_ACTION_TYPE, User } from "../types";
+import { useToast } from "@/hooks/use-toast";
 
 interface AppState {
   activeTab: Tab;
   currentScreen: Screen;
   isLoggedIn: boolean;
   user: User | null;
+  error: string | null;
 }
 
 export type AppAction =
@@ -13,6 +15,7 @@ export type AppAction =
   | { type: APP_ACTION_TYPE.SET_CURRENT_SCREEN; payload: Screen }
   | { type: APP_ACTION_TYPE.SET_LOGGED_IN; payload: boolean }
   | { type: APP_ACTION_TYPE.SET_USER; payload: User | null }
+  | { type: APP_ACTION_TYPE.SET_ERROR; payload: string | null }
   | { type: "INIT"; payload: AppState };
 
 export interface AppContextValue {
@@ -25,6 +28,7 @@ const defaultState: AppState = {
   currentScreen: Screen.Home,
   isLoggedIn: false,
   user: null,
+  error: null,
 };
 
 const makeInitialState = (): AppState => {
@@ -50,6 +54,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         return { ...state, isLoggedIn: action.payload };
       case APP_ACTION_TYPE.SET_USER:
         return { ...state, user: action.payload };
+      case APP_ACTION_TYPE.SET_ERROR:
+        return { ...state, error: action.payload };
       case "INIT":
         return action.payload;
       default:
@@ -74,6 +80,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
   const [state, dispatch] = useReducer(appReducer, makeInitialState());
+  const { toast } = useToast();
 
   useEffect(() => {
     chrome.storage.local.get(["appState"], (result) => {
@@ -84,13 +91,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({
   }, []);
 
   useEffect(() => {
-    // This effect is now only responsible for saving state changes
-    const saveState = async () => {
-      await chrome.storage.local.set({ appState: state });
-      console.log("App state saved to Chrome storage:", state);
-    };
-    saveState();
-  }, [state]);
+    if (state.error) {
+      toast({
+        title: "Error",
+        description: state.error,
+        variant: "destructive",
+      });
+      // Clear the error after showing the toast
+      dispatch({ type: APP_ACTION_TYPE.SET_ERROR, payload: null });
+    }
+  }, [state.error, toast]);
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

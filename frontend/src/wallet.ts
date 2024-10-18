@@ -5,7 +5,7 @@ const FEDERATION_INVITE_CODE =
 
 const wallet = new FedimintWallet();
 
-wallet.setLogLevel("debug");
+wallet.setLogLevel("info");
 
 const isOpen = await wallet.open();
 
