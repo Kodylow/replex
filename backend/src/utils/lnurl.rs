@@ -7,12 +7,11 @@ use crate::router::handlers::lnurlp::callback::{LnurlCallbackParams, LnurlCallba
 use crate::router::handlers::lnurlp::LnurlStatus;
 use anyhow::Result;
 use axum::http::StatusCode;
-use multimint::fedimint_client::oplog::UpdateStreamOrOutcome;
 use multimint::fedimint_client::ClientHandleArc;
 use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_core::secp256k1::PublicKey;
 use multimint::fedimint_core::Amount;
-use multimint::fedimint_ln_client::{LightningClientModule, LnReceiveState};
+use multimint::fedimint_ln_client::LightningClientModule;
 use multimint::fedimint_ln_common::lightning_invoice::{
     Bolt11Invoice, Bolt11InvoiceDescription, Description,
 };
@@ -57,15 +56,6 @@ pub async fn create_invoice(
     )
     .await
     .map_err(|e| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e)))
-}
-
-pub async fn subscribe_to_invoice(
-    ln: &LightningClientModule,
-    op_id: OperationId,
-) -> Result<UpdateStreamOrOutcome<LnReceiveState>, AppError> {
-    ln.subscribe_ln_receive(op_id)
-        .await
-        .map_err(|e| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e)))
 }
 
 pub fn create_verify_url(username: &str, op_id: &OperationId) -> Result<Url> {

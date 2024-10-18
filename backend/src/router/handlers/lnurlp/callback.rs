@@ -11,11 +11,11 @@ use super::LnurlStatus;
 use crate::error::AppError;
 use crate::model::invoices::{InvoiceForCreate, InvoiceState};
 use crate::state::AppState;
+use crate::utils::invoice::spawn_invoice_subscription;
 use crate::utils::lnurl::{
-    create_callback_response, create_invoice, create_verify_url, subscribe_to_invoice,
-    validate_amount,
+    create_callback_response, create_invoice, create_verify_url, validate_amount,
 };
-use crate::utils::{empty_string_as_none, get_federation_and_client, spawn_invoice_subscription};
+use crate::utils::{empty_string_as_none, get_federation_and_client};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,8 +53,6 @@ pub struct LnurlCallbackResponse {
     pub routes: Option<Vec<String>>,
 }
 
-const MIN_AMOUNT: u64 = 1000;
-
 #[axum_macros::debug_handler]
 pub async fn handle_callback(
     Path(username): Path<String>,
@@ -83,7 +81,9 @@ pub async fn handle_callback(
                 .build()?;
             let invoice = state.db.invoice().create(invoice).await?;
 
-            let subscription = subscribe_to_invoice(&ln, op_id).await?;
+            let subscription = ln.subscribe_ln_receive(op_id).await.map_err(|e| {
+                AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e))
+            })?;
             spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
 
             let verify_url = create_verify_url(&username, &op_id)?;
