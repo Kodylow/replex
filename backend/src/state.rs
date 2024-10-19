@@ -1,17 +1,8 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use config::CONFIG;
-use multimint::{
-    fedimint_client::ClientHandleArc, fedimint_core::Amount,
-    fedimint_mint_client::MintClientModule, MultiMint,
-};
+use multimint::MultiMint;
 
-use crate::{
-    config,
-    model::{invoices::Invoice, users::User, Db},
-    nostr::Nostr,
-};
+use crate::{config, model::Db, nostr::Nostr};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -29,23 +20,5 @@ impl AppState {
         db.setup_schema().await?;
 
         Ok(Self { mm, db, nostr })
-    }
-
-    pub async fn notify_user(
-        client: &ClientHandleArc,
-        user: &User,
-        invoice: Invoice,
-    ) -> Result<()> {
-        let mint = client.get_first_module::<MintClientModule>();
-        let (operation_id, notes) = mint
-            .spend_notes(
-                Amount::from_msats(invoice.amount as u64),
-                Duration::from_secs(604800),
-                false,
-                (),
-            )
-            .await?;
-
-        todo!()
     }
 }
