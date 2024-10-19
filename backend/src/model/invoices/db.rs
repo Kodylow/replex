@@ -25,6 +25,15 @@ impl InvoiceDb {
             .map_err(|e| e.into())
     }
 
+    // Id on invoice is the operation id from the fedimint client
+    pub async fn get_by_op_id(&self, op_id: &str) -> Result<Option<Invoice>> {
+        let sql = "SELECT * FROM invoices WHERE op_id = $1";
+        self.0
+            .query_opt::<Invoice>(sql, &[&op_id])
+            .await
+            .map_err(|e| e.into())
+    }
+
     pub async fn update_state(&self, id: i32, state: InvoiceState) -> Result<()> {
         let sql = "UPDATE invoices SET state = $1 WHERE id = $2";
         let _ = self.0.execute(sql, &[&state, &id]).await?;

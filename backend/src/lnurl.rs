@@ -12,6 +12,8 @@ use multimint::fedimint_ln_client::LightningClientModule;
 use multimint::fedimint_ln_common::lightning_invoice::{
     Bolt11Invoice, Bolt11InvoiceDescription, Description,
 };
+use nostr_sdk::bitcoin::XOnlyPublicKey;
+use nostr_sdk::secp256k1::Parity;
 
 pub const MIN_AMOUNT: u64 = 1000;
 
@@ -31,6 +33,8 @@ pub async fn create_invoice(
     user: &User,
     tweak: i64,
 ) -> Result<(OperationId, Bolt11Invoice, [u8; 32]), AppError> {
+    let xonly_pubkey = XOnlyPublicKey::from_str(&user.pubkey)?;
+    let pubkey = PublicKey::from_str(&xonly_pubkey.public_key(Parity::Even).to_string())?;
     ln.create_bolt11_invoice_for_user_tweaked(
         Amount {
             msats: params.amount,
@@ -42,7 +46,7 @@ pub async fn create_invoice(
                 .unwrap_or("hermes address payment".to_string()),
         )?),
         None,
-        PublicKey::from_str(&user.pubkey)?,
+        pubkey,
         tweak as u64,
         (),
         None,

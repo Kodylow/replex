@@ -1,7 +1,6 @@
 pub mod config;
 pub mod error;
 pub mod federation;
-pub mod invoice;
 pub mod lnurl;
 pub mod model;
 pub mod nostr;
@@ -28,10 +27,11 @@ async fn main() -> Result<()> {
 
     // spawn a task to check for previous pending invoices
     tokio::spawn(async move {
-        if let Err(e) = invoice::handle_pending_invoices(state).await {
+        if let Err(e) = state.handle_pending_invoices().await {
             error!("Error handling pending invoices: {e}")
         }
     });
+    info!("Started pending invoice handler");
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", CONFIG.domain, CONFIG.port))
         .await

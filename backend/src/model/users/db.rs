@@ -30,6 +30,7 @@ impl UserDb {
     }
 
     pub async fn get_by_name(&self, username: &str) -> Result<Option<User>> {
+        info!("Getting user by name: {}", username);
         let sql = "SELECT * FROM users WHERE name = $1";
         self.0.query_opt::<User>(sql, &[&username]).await
     }

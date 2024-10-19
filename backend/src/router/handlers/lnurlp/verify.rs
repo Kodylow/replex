@@ -7,10 +7,10 @@ use tracing::info;
 
 use super::LnurlStatus;
 use crate::error::AppError;
-use crate::model::invoices::{Invoice, InvoiceState};
+use crate::model::invoices::InvoiceState;
 use crate::state::AppState;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LnurlVerifyResponse {
     pub status: LnurlStatus,
@@ -29,9 +29,7 @@ pub async fn handle_verify(
         username, op_id
     );
 
-    // Use the operation id to look up the invoice
-    let sql = "SELECT * FROM invoice WHERE op_id = $1";
-    match state.db.query_opt::<Invoice>(sql, &[&op_id]).await? {
+    match state.db.invoice().get_by_op_id(&op_id).await? {
         Some(invoice) => {
             let verify_response = LnurlVerifyResponse {
                 status: LnurlStatus::Ok,
@@ -39,6 +37,7 @@ pub async fn handle_verify(
                 preimage: "".to_string(), // TODO: figure out how to get the preimage from fedimint client
                 pr: invoice.bolt11,
             };
+            info!("Verify response: {:?}", verify_response);
 
             Ok(Json(verify_response))
         }

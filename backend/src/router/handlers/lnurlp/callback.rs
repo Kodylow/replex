@@ -2,23 +2,26 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
+use multimint::fedimint_client::ClientHandleArc;
+use multimint::fedimint_core::config::FederationId;
 use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_ln_client::LightningClientModule;
+use multimint::fedimint_ln_common::lightning_invoice::Bolt11Invoice;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{error, info};
 use url::Url;
 
 use super::LnurlStatus;
 use crate::config::CONFIG;
 use crate::error::AppError;
 use crate::federation::get_federation_and_client;
-use crate::invoice::spawn_invoice_subscription;
 use crate::lnurl::{create_invoice, validate_amount};
-use crate::model::invoices::{InvoiceForCreate, InvoiceState};
+use crate::model::invoices::{Invoice, InvoiceForCreate, InvoiceState};
+use crate::model::users::User;
 use crate::serde_helpers::empty_string_as_none;
 use crate::state::AppState;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LnurlCallbackParams {
     pub amount: u64, // User specified amount in MilliSatoshi
@@ -33,14 +36,14 @@ pub struct LnurlCallbackParams {
     pub nostr: Option<String>, // Optional zap request
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LnurlCallbackSuccessAction {
     pub tag: String,
     pub message: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LnurlCallbackResponse {
     pub status: LnurlStatus,
@@ -61,42 +64,122 @@ pub async fn handle_callback(
     State(state): State<AppState>,
 ) -> Result<Json<LnurlCallbackResponse>, AppError> {
     info!("callback called with username: {}", username);
+    info!("Received params: {:?}", params);
     validate_amount(params.amount)?;
 
-    match state.db.users().get_by_name(&username).await? {
+    let user = get_user(&state, &username).await?;
+    let (federation_id, client) = get_federation_and_client_with_timeout(&state, &user).await?;
+    let ln = client.get_first_module::<LightningClientModule>();
+
+    let tweak = user.last_tweak + 1;
+    info!("Creating invoice with tweak: {}", tweak);
+
+    let (op_id, invoice, _) = create_invoice(&ln, &params, &user, tweak).await?;
+
+    let stored_invoice = store_invoice(
+        &state,
+        &user,
+        &federation_id,
+        &op_id,
+        &invoice,
+        params.amount,
+        tweak,
+    )
+    .await?;
+
+    subscribe_to_ln_receive(&state, &ln, &op_id, stored_invoice.clone()).await?;
+
+    let verify_url = create_verify_url(&username, &op_id)?;
+    info!("Verify URL created: {}", verify_url);
+    let response = create_callback_response(invoice.to_string(), verify_url)?;
+    info!("Callback response created: {:?}", response);
+
+    Ok(Json(response))
+}
+
+async fn get_user(state: &AppState, username: &str) -> Result<User, AppError> {
+    match state.db.users().get_by_name(username).await? {
         Some(user) => {
-            let (federation_id, client) = get_federation_and_client(&state.mm, &user).await?;
-            let ln = client.get_first_module::<LightningClientModule>();
-
-            let tweak = user.last_tweak + 1;
-            let (op_id, invoice, _) = create_invoice(&ln, &params, &user, tweak).await?;
-            state.db.users().update_tweak(&user, tweak).await?;
-            let invoice = InvoiceForCreate::builder()
-                .op_id(op_id.fmt_full().to_string())
-                .federation_id(federation_id.to_string())
-                .user_id(user.id)
-                .amount(params.amount as i64)
-                .bolt11(invoice.to_string())
-                .tweak(tweak)
-                .state(InvoiceState::Pending)
-                .build()?;
-            let invoice = state.db.invoice().create(invoice).await?;
-
-            let subscription = ln.subscribe_ln_receive(op_id).await.map_err(|e| {
-                AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e))
-            })?;
-            spawn_invoice_subscription(state.clone(), invoice.clone(), subscription).await?;
-
-            let verify_url = create_verify_url(&username, &op_id)?;
-            let response = create_callback_response(invoice.bolt11, verify_url)?;
-
-            Ok(Json(response))
+            info!("User found: {:?}", user);
+            Ok(user)
         }
-        None => Err(AppError::new(
-            StatusCode::NOT_FOUND,
-            anyhow::anyhow!("User not found"),
-        )),
+        None => {
+            error!("User not found: {}", username);
+            Err(AppError::new(
+                StatusCode::NOT_FOUND,
+                anyhow::anyhow!("User not found"),
+            ))
+        }
     }
+}
+
+async fn get_federation_and_client_with_timeout(
+    state: &AppState,
+    user: &User,
+) -> Result<(FederationId, ClientHandleArc), AppError> {
+    let federation_client_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        get_federation_and_client(&state.mm, user),
+    )
+    .await;
+
+    match federation_client_result {
+        Ok(Ok(result)) => {
+            info!("Federation ID: {}", result.0);
+            Ok(result)
+        }
+        Ok(Err(e)) => {
+            error!("Error in get_federation_and_client: {:?}", e);
+            Err(e)
+        }
+        Err(_) => {
+            error!("Timeout in get_federation_and_client");
+            Err(AppError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                anyhow::anyhow!("Timeout in get_federation_and_client"),
+            ))
+        }
+    }
+}
+
+async fn store_invoice(
+    state: &AppState,
+    user: &User,
+    federation_id: &FederationId,
+    op_id: &OperationId,
+    invoice: &Bolt11Invoice,
+    amount: u64,
+    tweak: i64,
+) -> Result<Invoice, AppError> {
+    state.db.users().update_tweak(user, tweak).await?;
+    let invoice_for_create = InvoiceForCreate::builder()
+        .op_id(op_id.fmt_full().to_string())
+        .federation_id(federation_id.to_string())
+        .user_id(user.id)
+        .amount(amount as i64)
+        .bolt11(invoice.to_string())
+        .tweak(tweak)
+        .state(InvoiceState::Pending)
+        .build()?;
+    let stored_invoice = state.db.invoice().create(invoice_for_create).await?;
+    info!("Invoice stored in DB: {:?}", stored_invoice);
+    Ok(stored_invoice)
+}
+
+async fn subscribe_to_ln_receive(
+    state: &AppState,
+    ln: &LightningClientModule,
+    op_id: &OperationId,
+    invoice: Invoice,
+) -> Result<(), AppError> {
+    let subscription = ln.subscribe_ln_receive(*op_id).await.map_err(|e| {
+        error!("Error subscribing to invoice: {:?}", e);
+        AppError::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!(e))
+    })?;
+    state
+        .spawn_invoice_subscription(invoice, subscription)
+        .await?;
+    Ok(())
 }
 
 pub fn create_verify_url(username: &str, op_id: &OperationId) -> Result<Url> {
