@@ -3,6 +3,7 @@ use anyhow::Result;
 
 use super::{Invoice, InvoiceForCreate, InvoiceState};
 
+#[derive(Clone)]
 pub struct InvoiceDb(pub Db);
 
 impl InvoiceDb {
