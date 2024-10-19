@@ -52,23 +52,23 @@ async fn update_or_create_user(
 
     if let Some(user) = user_db.get_by_name(name).await? {
         info!("User {} already exists", name);
-        let app_user = UserForUpdate::builder()
+        let user_for_update = UserForUpdate::builder()
             .name(name.to_string())
             .pubkey(pubkey.to_string())
             .relays(relays)
             .federation_ids(federation_ids)
             .build();
-        user_db.update(user.id, app_user).await?;
+        user_db.update(user.id, user_for_update).await?;
     } else {
         info!("User {} does not exist", name);
-        let app_user = UserForCreate::builder()
+        let user = UserForCreate::builder()
             .name(name.to_string())
             .pubkey(pubkey.to_string())
             .relays(relays)
             .federation_ids(federation_ids)
             .last_tweak(0)
             .build()?;
-        user_db.create(app_user).await?;
+        user_db.create(user).await?;
     }
 
     Ok(())

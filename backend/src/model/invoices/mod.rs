@@ -59,7 +59,7 @@ impl ToSql for InvoiceState {
 pub struct InvoiceForCreate {
     pub op_id: String,
     pub federation_id: String,
-    pub app_user_id: i32,
+    pub user_id: i32,
     pub amount: i64,
     pub bolt11: String,
     pub tweak: i64,
@@ -76,7 +76,7 @@ impl InvoiceForCreate {
 pub struct InvoiceForCreateBuilder {
     op_id: Option<String>,
     federation_id: Option<String>,
-    app_user_id: Option<i32>,
+    user_id: Option<i32>,
     amount: Option<i64>,
     bolt11: Option<String>,
     tweak: Option<i64>,
@@ -94,8 +94,8 @@ impl InvoiceForCreateBuilder {
         self
     }
 
-    pub fn app_user_id(mut self, app_user_id: i32) -> Self {
-        self.app_user_id = Some(app_user_id);
+    pub fn user_id(mut self, user_id: i32) -> Self {
+        self.user_id = Some(user_id);
         self
     }
 
@@ -127,9 +127,9 @@ impl InvoiceForCreateBuilder {
             federation_id: self
                 .federation_id
                 .ok_or_else(|| anyhow::anyhow!("federation_id is required"))?,
-            app_user_id: self
-                .app_user_id
-                .ok_or_else(|| anyhow::anyhow!("app_user_id is required"))?,
+            user_id: self
+                .user_id
+                .ok_or_else(|| anyhow::anyhow!("user_id is required"))?,
             amount: self
                 .amount
                 .ok_or_else(|| anyhow::anyhow!("amount is required"))?,
@@ -151,7 +151,7 @@ pub struct Invoice {
     pub id: i32,
     pub federation_id: String,
     pub op_id: String,
-    pub app_user_id: i32,
+    pub user_id: i32,
     pub bolt11: String,
     pub amount: i64,
     pub state: InvoiceState,
@@ -168,7 +168,7 @@ impl FromRow for Invoice {
             id: row.get("id"),
             federation_id: row.get("federation_id"),
             op_id: row.get("op_id"),
-            app_user_id: row.get("app_user_id"),
+            user_id: row.get("user_id"),
             bolt11: row.get("bolt11"),
             amount: row.get("amount"),
             state: row.get("state"),

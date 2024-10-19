@@ -73,7 +73,7 @@ pub async fn handle_callback(
             let invoice = InvoiceForCreate::builder()
                 .op_id(op_id.fmt_full().to_string())
                 .federation_id(federation_id.to_string())
-                .app_user_id(user.id)
+                .user_id(user.id)
                 .amount(params.amount as i64)
                 .bolt11(invoice.to_string())
                 .tweak(tweak)

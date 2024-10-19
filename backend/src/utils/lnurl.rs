@@ -84,7 +84,7 @@ pub fn create_callback_response(
 }
 
 pub async fn notify_user(client: &ClientHandleArc, db: &Db, invoice: Invoice) -> Result<()> {
-    let user = db.users().get(invoice.app_user_id).await?;
+    let user = db.users().get(invoice.user_id).await?;
     let mint = client.get_first_module::<MintClientModule>();
     let (operation_id, notes) = mint
         .spend_notes(

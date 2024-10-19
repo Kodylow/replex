@@ -8,14 +8,14 @@ pub struct InvoiceDb(pub Db);
 
 impl InvoiceDb {
     pub async fn create(&self, invoice: InvoiceForCreate) -> Result<Invoice, AppError> {
-        let sql = "INSERT INTO invoices (op_id, federation_id, app_user_id, amount, bolt11, tweak, state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
+        let sql = "INSERT INTO invoices (op_id, federation_id, user_id, amount, bolt11, tweak, state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
         self.0
             .query_one::<Invoice>(
                 sql,
                 &[
                     &invoice.op_id,
                     &invoice.federation_id,
-                    &invoice.app_user_id,
+                    &invoice.user_id,
                     &invoice.amount,
                     &invoice.bolt11,
                     &invoice.tweak,
