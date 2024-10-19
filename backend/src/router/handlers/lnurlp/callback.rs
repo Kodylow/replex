@@ -2,20 +2,21 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
+use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_ln_client::LightningClientModule;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
 
 use super::LnurlStatus;
+use crate::config::CONFIG;
 use crate::error::AppError;
+use crate::federation::get_federation_and_client;
+use crate::invoice::spawn_invoice_subscription;
+use crate::lnurl::{create_invoice, validate_amount};
 use crate::model::invoices::{InvoiceForCreate, InvoiceState};
+use crate::serde_helpers::empty_string_as_none;
 use crate::state::AppState;
-use crate::utils::invoice::spawn_invoice_subscription;
-use crate::utils::lnurl::{
-    create_callback_response, create_invoice, create_verify_url, validate_amount,
-};
-use crate::utils::{empty_string_as_none, get_federation_and_client};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,7 +65,7 @@ pub async fn handle_callback(
 
     match state.db.users().get_by_name(&username).await? {
         Some(user) => {
-            let (federation_id, client) = get_federation_and_client(&state, &user).await?;
+            let (federation_id, client) = get_federation_and_client(&state.mm, &user).await?;
             let ln = client.get_first_module::<LightningClientModule>();
 
             let tweak = user.last_tweak + 1;
@@ -96,4 +97,29 @@ pub async fn handle_callback(
             anyhow::anyhow!("User not found"),
         )),
     }
+}
+
+pub fn create_verify_url(username: &str, op_id: &OperationId) -> Result<Url> {
+    Url::parse(&format!(
+        "http://{}:{}/lnurlp/{}/verify/{}",
+        CONFIG.domain,
+        CONFIG.port,
+        username,
+        op_id.fmt_full().to_string()
+    ))
+    .map_err(|e| anyhow::anyhow!(e))
+}
+
+pub fn create_callback_response(
+    bolt11: String,
+    verify_url: Url,
+) -> Result<LnurlCallbackResponse, AppError> {
+    Ok(LnurlCallbackResponse {
+        pr: bolt11,
+        success_action: None,
+        status: LnurlStatus::Ok,
+        reason: None,
+        verify: verify_url,
+        routes: Some(vec![]),
+    })
 }

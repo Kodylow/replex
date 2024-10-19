@@ -1,8 +1,13 @@
 use anyhow::Result;
 
+use multimint::fedimint_client::ClientHandleArc;
+use nostr_sdk::FromBech32;
 use nostr_sdk::SecretKey;
 use nostr_sdk::ToBech32;
 use tracing::info;
+
+use crate::model::invoices::Invoice;
+use crate::model::users::User;
 
 #[derive(Clone)]
 pub struct Nostr {
@@ -10,9 +15,8 @@ pub struct Nostr {
 }
 
 impl Nostr {
-    pub fn new(secret_key_bytes: &[u8]) -> Result<Self> {
-        let secret_key = SecretKey::from_slice(secret_key_bytes)
-            .map_err(|_| anyhow::anyhow!("Invalid secret key"))?;
+    pub fn new(nsec: &str) -> Result<Self> {
+        let secret_key = SecretKey::from_bech32(nsec)?;
         let keys = nostr_sdk::Keys::new(secret_key);
         info!("Nostr npub: {}", keys.public_key().to_bech32()?);
         info!("Nostr nsec: {}", keys.secret_key().to_bech32()?);
@@ -21,9 +25,19 @@ impl Nostr {
     }
 
     pub async fn add_relays(&self, relays: &[String]) -> Result<()> {
+        info!("Adding {} relays", relays.len());
         for relay in relays {
             self.client.add_relay(relay).await?;
         }
         Ok(())
+    }
+
+    pub async fn notify_user(
+        &self,
+        client: &ClientHandleArc,
+        user: &User,
+        invoice: Invoice,
+    ) -> Result<()> {
+        todo!()
     }
 }

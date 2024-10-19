@@ -1,14 +1,14 @@
 use crate::error::AppError;
 use crate::model::users::User;
-use crate::state::AppState;
 use anyhow::Result;
 use axum::http::StatusCode;
 use multimint::fedimint_client::ClientHandleArc;
 use multimint::fedimint_core::config::FederationId;
+use multimint::MultiMint;
 use std::str::FromStr;
 
 pub async fn get_federation_and_client(
-    state: &AppState,
+    mm: &MultiMint,
     user: &User,
 ) -> Result<(FederationId, ClientHandleArc), AppError> {
     let federation_id = FederationId::from_str(&user.federation_ids[0]).map_err(|e| {
@@ -18,7 +18,7 @@ pub async fn get_federation_and_client(
         )
     })?;
 
-    let locked_clients = state.fm.clients.lock().await.clone();
+    let locked_clients = mm.clients.lock().await.clone();
     let client = locked_clients.get(&federation_id).ok_or_else(|| {
         AppError::new(
             StatusCode::BAD_REQUEST,

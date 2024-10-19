@@ -10,8 +10,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use tracing::{error, info};
 
-use super::lnurl::notify_user;
-
 pub async fn handle_pending_invoices(state: AppState) -> Result<()> {
     info!("Handling pending invoices");
 
@@ -52,7 +50,7 @@ async fn handle_federation_invoices(
 
     match FederationId::from_str(federation_id) {
         Ok(federation_id) => {
-            if let Some(client) = state.fm.clients.lock().await.get(&federation_id) {
+            if let Some(client) = state.mm.clients.lock().await.get(&federation_id) {
                 let ln = client.get_first_module::<LightningClientModule>();
                 for invoice in invoices {
                     if let Ok(subscription) = ln
@@ -76,7 +74,7 @@ pub async fn spawn_invoice_subscription(
     subscription: UpdateStreamOrOutcome<LnReceiveState>,
 ) -> Result<()> {
     spawn("waiting for invoice being paid", async move {
-        let locked_clients = state.fm.clients.lock().await;
+        let locked_clients = state.mm.clients.lock().await;
         let client = locked_clients
             .get(&FederationId::from_str(&invoice.federation_id).unwrap())
             .unwrap();
@@ -100,9 +98,15 @@ pub async fn spawn_invoice_subscription(
                             "Failed to update invoice state for invoice: {}",
                             invoice.id
                         ));
-                    notify_user(client, &state.db, invoice)
-                        .await
-                        .expect("Failed to notify user");
+                    match state.db.users().get(invoice.user_id).await {
+                        Ok(Some(user)) => state
+                            .nostr
+                            .notify_user(client, &user, invoice)
+                            .await
+                            .expect("Failed to notify user"),
+                        Ok(None) => error!("User not found for invoice: {}", invoice.id),
+                        Err(e) => error!("Failed to get user for invoice: {}", e),
+                    }
                     break;
                 }
                 _ => {}

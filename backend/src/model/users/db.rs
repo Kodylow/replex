@@ -1,6 +1,9 @@
 use crate::model::users::{User, UserForCreate, UserForUpdate};
 use crate::model::Db;
 use anyhow::Result;
+use serde_json::Value;
+use tokio::fs;
+use tracing::info;
 
 pub struct UserDb(pub Db);
 
@@ -77,11 +80,72 @@ impl UserDb {
         self.0.execute(sql, &[&tweak, &user.id]).await?;
         Ok(())
     }
-}
 
-pub async fn get_user(db: &Db, username: &str) -> Result<User> {
-    let sql = "SELECT * FROM users WHERE name = $1";
-    db.query_one::<User>(sql, &[&username])
-        .await
-        .map_err(|e| e.into())
+    pub async fn update_or_create_user(
+        &self,
+        name: &str,
+        pubkey: &str,
+        relays: Vec<String>,
+        federation_ids: Vec<String>,
+    ) -> Result<()> {
+        if let Some(user) = self.get_by_name(name).await? {
+            info!("User {} already exists", name);
+            let user_for_update = UserForUpdate::builder()
+                .name(name.to_string())
+                .pubkey(pubkey.to_string())
+                .relays(relays)
+                .federation_ids(federation_ids)
+                .build();
+            self.update(user.id, user_for_update).await?;
+        } else {
+            info!("User {} does not exist", name);
+            let user = UserForCreate::builder()
+                .name(name.to_string())
+                .pubkey(pubkey.to_string())
+                .relays(relays)
+                .federation_ids(federation_ids)
+                .last_tweak(0)
+                .build()?;
+            self.create(user).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn load_users_and_keys(&self) -> Result<()> {
+        info!("Loading users and keys from nostr.json");
+        let json_content = fs::read_to_string("nostr.json").await?;
+        let json: Value = serde_json::from_str(&json_content)?;
+
+        let names = json["names"]
+            .as_object()
+            .ok_or(anyhow::anyhow!("Invalid 'names' structure"))?;
+        let relays = json["relays"]
+            .as_object()
+            .ok_or(anyhow::anyhow!("Invalid 'relays' structure"))?;
+        let federation_ids = json["federation_ids"]
+            .as_object()
+            .ok_or(anyhow::anyhow!("Invalid 'federation_ids' structure"))?;
+
+        for (name, pubkey) in names {
+            let pubkey = pubkey.as_str().ok_or(anyhow::anyhow!("Invalid pubkey"))?;
+            let user_relays = relays[pubkey]
+                .as_array()
+                .ok_or(anyhow::anyhow!("Invalid relays for user"))?
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect::<Vec<String>>();
+            let user_federation_ids = federation_ids[pubkey]
+                .as_array()
+                .ok_or(anyhow::anyhow!("Invalid federation_ids for user"))?
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect::<Vec<String>>();
+
+            self.update_or_create_user(name, pubkey, user_relays, user_federation_ids)
+                .await?;
+        }
+
+        Ok(())
+    }
 }

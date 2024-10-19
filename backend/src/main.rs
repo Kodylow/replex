@@ -1,17 +1,19 @@
 pub mod config;
 pub mod error;
+pub mod federation;
+pub mod invoice;
+pub mod lnurl;
 pub mod model;
 pub mod nostr;
 pub mod router;
+pub mod serde_helpers;
 pub mod state;
-pub mod utils;
 
 use config::CONFIG;
 
 use anyhow::Result;
 use state::AppState;
 use tracing::{error, info};
-use utils::{handle_pending_invoices, load_users_and_keys};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,14 +22,13 @@ async fn main() -> Result<()> {
         .init();
 
     let state = AppState::new().await?;
+    state.db.users().load_users_and_keys().await?;
 
     let app = router::create_router(state.clone()).await?;
 
-    load_users_and_keys(state.clone()).await?;
-
     // spawn a task to check for previous pending invoices
     tokio::spawn(async move {
-        if let Err(e) = handle_pending_invoices(state).await {
+        if let Err(e) = invoice::handle_pending_invoices(state).await {
             error!("Error handling pending invoices: {e}")
         }
     });

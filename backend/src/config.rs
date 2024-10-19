@@ -12,6 +12,7 @@ pub struct Config {
     pub fm_db_path: PathBuf,
     pub pg_db: String,
     pub mnemonic: String,
+    pub nostr_nsec: String,
     pub nostr_relays: Vec<String>,
 }
 
@@ -28,6 +29,7 @@ impl Config {
             fm_db_path: env::var("FM_DB_PATH")?.parse().expect("Invalid FM_DB_PATH"),
             pg_db: env::var("DATABASE_URL")?,
             mnemonic: env::var("MULTIMINT_MNEMONIC_ENV")?,
+            nostr_nsec: env::var("NOSTR_NSEC")?,
             nostr_relays: env::var("NOSTR_RELAYS")?
                 .split(',')
                 .map(String::from)
