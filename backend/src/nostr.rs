@@ -32,7 +32,7 @@ impl Nostr {
         Ok(())
     }
 
-    pub async fn notify_user(&self, user: &User, invoice: Invoice) -> Result<()> {
+    pub async fn notify_user_invoice_settled(&self, invoice: Invoice) -> Result<()> {
         todo!()
     }
 }

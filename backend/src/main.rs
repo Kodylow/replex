@@ -1,7 +1,5 @@
 pub mod config;
 pub mod error;
-pub mod federation;
-pub mod lnurl;
 pub mod model;
 pub mod nostr;
 pub mod router;

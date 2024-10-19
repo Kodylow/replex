@@ -2,13 +2,13 @@ use anyhow::Result;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
+use multimint::fedimint_ln_client::LightningClientModule;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 use url::Url;
 
 use super::LnurlStatus;
 use crate::error::AppError;
-use crate::lnurl::validate_amount;
 use crate::serde_helpers::empty_string_as_none;
 use crate::state::AppState;
 
@@ -54,12 +54,17 @@ pub async fn handle_callback(
     State(state): State<AppState>,
 ) -> Result<Json<LnurlCallbackResponse>, AppError> {
     debug!("Callback for user: {}, params: {:?}", username, params);
-    validate_amount(params.amount)?;
 
-    let (invoice, op_id) = state.create_and_store_invoice(&username, &params).await?;
+    let user = state.db.users().get_by_name(&username).await?.unwrap();
+    let (federation_id, client) = state.get_federation_and_client(&user).await?;
+    let ln = client.get_first_module::<LightningClientModule>();
+
+    let (op_id, invoice) = state
+        .create_store_and_notify_invoice(&ln, &user, &params, federation_id)
+        .await?;
 
     let verify_url = create_verify_url(&username, &op_id.fmt_full().to_string())?;
-    let response = create_callback_response(invoice.to_string(), verify_url)?;
+    let response = create_callback_response(invoice.bolt11, verify_url)?;
 
     info!(
         "Callback processed for user: {}, op_id: {:?}",

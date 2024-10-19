@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   federation_id VARCHAR(255) NOT NULL,
   op_id VARCHAR(255) NOT NULL UNIQUE,
   user_id INTEGER NOT NULL REFERENCES users(id),
+  user_pubkey VARCHAR(66) NOT NULL,
   bolt11 TEXT NOT NULL,
   amount BIGINT NOT NULL,
   state INTEGER NOT NULL,
