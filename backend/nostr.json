@@ -4,8 +4,15 @@
   },
   "relays": {
     "de8823cdc979bf4c753223edc19a7abc35ecff2959ef50ca9e9d573ac0f83fd0": [
+      "wss://nostr.mutinywallet.com",
+      "wss://relay.mutinywallet.com",
+      "wss://relay.snort.social",
+      "wss://nos.lol",
       "wss://relay.damus.io",
-      "wss://nostr.wine"
+      "wss://relay.primal.net",
+      "wss://nostr.wine",
+      "wss://nostr.zbd.gg",
+      "wss://relay.nos.social"
     ]
   },
   "federation_ids": {
