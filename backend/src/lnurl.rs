@@ -1,13 +1,10 @@
-use crate::config::CONFIG;
+use std::str::FromStr;
+
 use crate::error::AppError;
-use crate::model::invoices::Invoice;
 use crate::model::users::User;
-use crate::model::Db;
-use crate::router::handlers::lnurlp::callback::{LnurlCallbackParams, LnurlCallbackResponse};
-use crate::router::handlers::lnurlp::LnurlStatus;
+use crate::router::handlers::lnurlp::callback::LnurlCallbackParams;
 use anyhow::Result;
 use axum::http::StatusCode;
-use multimint::fedimint_client::ClientHandleArc;
 use multimint::fedimint_core::core::OperationId;
 use multimint::fedimint_core::secp256k1::PublicKey;
 use multimint::fedimint_core::Amount;
@@ -15,10 +12,6 @@ use multimint::fedimint_ln_client::LightningClientModule;
 use multimint::fedimint_ln_common::lightning_invoice::{
     Bolt11Invoice, Bolt11InvoiceDescription, Description,
 };
-use multimint::fedimint_mint_client::MintClientModule;
-use std::str::FromStr;
-use std::time::Duration;
-use url::Url;
 
 pub const MIN_AMOUNT: u64 = 1000;
 

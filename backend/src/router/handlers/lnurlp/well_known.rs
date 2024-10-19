@@ -1,9 +1,11 @@
+use std::str::FromStr;
+
 use anyhow::anyhow;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use multimint::fedimint_core::secp256k1::XOnlyPublicKey;
 use multimint::fedimint_core::Amount;
+use nostr_sdk::bitcoin::XOnlyPublicKey;
 use serde::ser::{SerializeTuple, Serializer};
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -65,7 +67,7 @@ pub async fn handle_well_known(
     // see if username exists in nostr.json
     info!("well_known called with username: {}", username);
     match state.db.users().get_by_name(&username).await? {
-        Some(_) => {
+        Some(user) => {
             let res = LnurlWellKnownResponse {
                 callback: format!("https://{}/lnurlp/{}/callback", CONFIG.domain, username)
                     .parse()?,
@@ -75,8 +77,8 @@ pub async fn handle_well_known(
                 comment_allowed: None,
                 tag: LnurlType::PayRequest,
                 status: LnurlStatus::Ok,
-                nostr_pubkey: None,
-                allows_nostr: false,
+                nostr_pubkey: Some(XOnlyPublicKey::from_str(&user.pubkey)?),
+                allows_nostr: true,
             };
 
             Ok(Json(res))
