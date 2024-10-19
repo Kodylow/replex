@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   state INTEGER NOT NULL,
   tweak BIGINT NOT NULL
 );
--- Create index on invoice.state for faster queries on pending invoices
-CREATE INDEX IF NOT EXISTS idx_invoice_state ON invoice(state);
--- Create index on invoice.user_id for faster joins
+-- Create index on invoices.state for faster queries on pending invoices
+CREATE INDEX IF NOT EXISTS idx_invoice_state ON invoices(state);
+-- Create index on invoices.user_id for faster joins
 CREATE INDEX IF NOT EXISTS idx_invoice_user_id ON invoices(user_id);

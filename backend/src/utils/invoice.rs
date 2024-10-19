@@ -17,10 +17,8 @@ pub async fn handle_pending_invoices(state: AppState) -> Result<()> {
 
     let invoices: Vec<Invoice> = state
         .db
-        .query(
-            "SELECT * FROM invoice WHERE state = $1",
-            &[&InvoiceState::Pending],
-        )
+        .invoice()
+        .get_by_state(InvoiceState::Pending)
         .await?;
 
     let invoices_by_federation: HashMap<String, Vec<Invoice>> =

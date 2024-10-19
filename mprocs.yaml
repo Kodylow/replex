@@ -1,8 +1,19 @@
 procs:
+  zsh:
+    shell: zsh
+
   backend:
     cwd: ./backend
     shell: cargo run
 
   frontend:
     cwd: ./frontend
-    shell: pnpm i && pnpm run dev
+    shell: pnpm i && pnpm run watch
+
+  db:
+    cwd: ./backend
+    shell: docker compose up -d && docker compose logs -f postgres
+
+  psql:
+    cwd: ./backend
+    shell: sleep 1 && source .env && psql $DATABASE_URL

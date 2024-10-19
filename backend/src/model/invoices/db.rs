@@ -1,4 +1,3 @@
-use crate::error::AppError;
 use crate::model::Db;
 use anyhow::Result;
 
@@ -7,7 +6,7 @@ use super::{Invoice, InvoiceForCreate, InvoiceState};
 pub struct InvoiceDb(pub Db);
 
 impl InvoiceDb {
-    pub async fn create(&self, invoice: InvoiceForCreate) -> Result<Invoice, AppError> {
+    pub async fn create(&self, invoice: InvoiceForCreate) -> Result<Invoice> {
         let sql = "INSERT INTO invoices (op_id, federation_id, user_id, amount, bolt11, tweak, state) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *";
         self.0
             .query_one::<Invoice>(
@@ -32,5 +31,8 @@ impl InvoiceDb {
         Ok(())
     }
 
-    // Add more methods as needed, e.g., get, list, etc.
+    pub async fn get_by_state(&self, state: InvoiceState) -> Result<Vec<Invoice>> {
+        let sql = "SELECT * FROM invoices WHERE state = $1";
+        self.0.query(sql, &[&state]).await.map_err(|e| e.into())
+    }
 }
