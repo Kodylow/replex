@@ -1,5 +1,6 @@
 use std::fs::read_to_string;
 
+pub mod invoices;
 pub mod lnurlp;
 pub mod register;
 

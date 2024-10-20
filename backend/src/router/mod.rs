@@ -3,7 +3,7 @@ use axum::routing::{get, post};
 use axum::Router;
 pub mod handlers;
 
-use handlers::{handle_readme, lnurlp, register};
+use handlers::{handle_readme, invoices, lnurlp, register};
 
 use crate::state::AppState;
 
@@ -12,6 +12,7 @@ pub async fn create_router(state: AppState) -> Result<Router> {
         .route("/", get(handle_readme))
         .route("/health", get(|| async { "OK" }))
         .route("/register", post(register::handle_register))
+        .route("/invoices", get(invoices::handle_invoices))
         .route(
             "/.well-known/lnurlp/:username",
             get(lnurlp::well_known::handle_well_known),
