@@ -199,7 +199,7 @@ impl AppState {
         .await
     }
 
-    pub async fn create_store_and_notify_invoice(
+    pub async fn create_invoice_store_and_notify(
         &self,
         ln: &LightningClientModule,
         user: &User,

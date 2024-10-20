@@ -60,7 +60,7 @@ pub async fn handle_callback(
     let ln = client.get_first_module::<LightningClientModule>();
 
     let (op_id, invoice) = state
-        .create_store_and_notify_invoice(&ln, &user, &params, federation_id)
+        .create_invoice_store_and_notify(&ln, &user, &params, federation_id)
         .await?;
 
     let verify_url = create_verify_url(&username, &op_id.fmt_full().to_string())?;
