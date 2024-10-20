@@ -1,23 +1,22 @@
 {
   "names": {
-    "k": "f81611363554b64306467234d7396ec88455707633f54738f6c4683535098cd3"
+    "k": "f81611363554b64306467234d7396ec88455707633f54738f6c4683535098cd3",
+    "carman": "e1ff3bfdd4e40315959b08b4fcc8245eaa514637e1d4ec2ae166b743341be1af"
   },
   "relays": {
     "f81611363554b64306467234d7396ec88455707633f54738f6c4683535098cd3": [
-      "wss://nostr.mutinywallet.com",
-      "wss://relay.mutinywallet.com",
-      "wss://relay.snort.social",
-      "wss://nos.lol",
-      "wss://relay.damus.io",
-      "wss://relay.primal.net",
-      "wss://nostr.wine",
-      "wss://nostr.zbd.gg",
-      "wss://relay.nos.social"
+      "wss://relay.primal.net"
+    ],
+    "e1ff3bfdd4e40315959b08b4fcc8245eaa514637e1d4ec2ae166b743341be1af": [
+      "wss://relay.primal.net"
     ]
   },
   "federation_ids": {
     "f81611363554b64306467234d7396ec88455707633f54738f6c4683535098cd3": [
-      "15db8cb4f1ec8e484d73b889372bec94812580f929e8148b7437d359af422cd3"
+      "32db033945206a5b5a961e9f874fae0050ee3e3bf234c818ba2582672270d23c"
+    ],
+    "e1ff3bfdd4e40315959b08b4fcc8245eaa514637e1d4ec2ae166b743341be1af": [
+      "32db033945206a5b5a961e9f874fae0050ee3e3bf234c818ba2582672270d23c"
     ]
   }
 }

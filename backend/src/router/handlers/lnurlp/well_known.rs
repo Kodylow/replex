@@ -5,7 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use multimint::fedimint_core::Amount;
-use nostr_sdk::bitcoin::XOnlyPublicKey;
+use nostr_sdk::secp256k1::XOnlyPublicKey;
 use serde::ser::{SerializeTuple, Serializer};
 use serde::{Deserialize, Serialize};
 use tracing::info;

@@ -45,6 +45,7 @@ impl Nostr {
             .await?;
 
         info!("Sent nostr dm: {:?}", dm);
+
         Ok(())
     }
 }

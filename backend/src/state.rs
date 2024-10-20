@@ -11,7 +11,7 @@ use multimint::{
     fedimint_ln_common::lightning_invoice::{Bolt11Invoice, Bolt11InvoiceDescription, Description},
     MultiMint,
 };
-use nostr_sdk::{bitcoin::XOnlyPublicKey, secp256k1::Parity};
+use nostr_sdk::secp256k1::{Parity, XOnlyPublicKey};
 use tokio::task::spawn;
 use tracing::{error, info};
 
@@ -36,21 +36,21 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new() -> Result<Self> {
-        let mm = MultiMint::new(CONFIG.fm_db_path.clone()).await?;
+        let mut mm = MultiMint::new(CONFIG.fm_db_path.clone()).await?;
+        for invite_code in &CONFIG.federation_invite_codes {
+            match mm.register_new(invite_code.clone(), None).await {
+                Ok(_) => info!("Registered federation: {}", invite_code),
+                Err(e) => info!("federation already registered: {}", e),
+            }
+        }
         let db = Db::new(CONFIG.pg_db.clone()).await?;
         let nostr = Nostr::new(&CONFIG.nostr_nsec)?;
 
         nostr.add_relays(&CONFIG.nostr_relays).await?;
+        nostr.client.connect().await;
         db.setup_schema().await?;
 
         Ok(Self { mm, db, nostr })
-    }
-
-    pub async fn register_federations(&mut self) -> Result<()> {
-        for invite_code in &CONFIG.federation_invite_codes {
-            self.mm.register_new(invite_code.clone(), None).await?;
-        }
-        Ok(())
     }
 
     pub async fn handle_pending_invoices(&self) -> Result<()> {
@@ -178,6 +178,8 @@ impl AppState {
         user: &User,
         tweak: i64,
     ) -> Result<(OperationId, Bolt11Invoice, [u8; 32])> {
+        let gateways = ln.list_gateways().await;
+        let gateway = gateways.first().unwrap();
         let xonly_pubkey = XOnlyPublicKey::from_str(&user.pubkey)?;
         let pubkey = PublicKey::from_str(&xonly_pubkey.public_key(Parity::Even).to_string())?;
         ln.create_bolt11_invoice_for_user_tweaked(
@@ -194,7 +196,7 @@ impl AppState {
             pubkey,
             tweak as u64,
             (),
-            None,
+            Some(gateway.info.clone()),
         )
         .await
     }
