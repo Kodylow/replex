@@ -60,6 +60,7 @@ pub struct InvoiceForCreate {
     pub op_id: String,
     pub federation_id: String,
     pub user_id: i32,
+    pub user_pubkey: String,
     pub amount: i64,
     pub bolt11: String,
     pub tweak: i64,
@@ -77,6 +78,7 @@ pub struct InvoiceForCreateBuilder {
     op_id: Option<String>,
     federation_id: Option<String>,
     user_id: Option<i32>,
+    user_pubkey: Option<String>,
     amount: Option<i64>,
     bolt11: Option<String>,
     tweak: Option<i64>,
@@ -96,6 +98,11 @@ impl InvoiceForCreateBuilder {
 
     pub fn user_id(mut self, user_id: i32) -> Self {
         self.user_id = Some(user_id);
+        self
+    }
+
+    pub fn user_pubkey(mut self, user_pubkey: String) -> Self {
+        self.user_pubkey = Some(user_pubkey);
         self
     }
 
@@ -130,6 +137,9 @@ impl InvoiceForCreateBuilder {
             user_id: self
                 .user_id
                 .ok_or_else(|| anyhow::anyhow!("user_id is required"))?,
+            user_pubkey: self
+                .user_pubkey
+                .ok_or_else(|| anyhow::anyhow!("user_pubkey is required"))?,
             amount: self
                 .amount
                 .ok_or_else(|| anyhow::anyhow!("amount is required"))?,

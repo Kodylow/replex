@@ -1,13 +1,15 @@
+use std::str::FromStr;
+
 use anyhow::Result;
 
-use multimint::fedimint_client::ClientHandleArc;
 use nostr_sdk::FromBech32;
+use nostr_sdk::PublicKey;
 use nostr_sdk::SecretKey;
 use nostr_sdk::ToBech32;
+use serde_json::json;
 use tracing::info;
 
 use crate::model::invoices::Invoice;
-use crate::model::users::User;
 
 #[derive(Clone)]
 pub struct Nostr {
@@ -33,6 +35,16 @@ impl Nostr {
     }
 
     pub async fn notify_user_invoice_settled(&self, invoice: Invoice) -> Result<()> {
-        todo!()
+        let dm = self
+            .client
+            .send_private_msg(
+                PublicKey::from_str(&invoice.user_pubkey)?,
+                json!(invoice).to_string(),
+                None,
+            )
+            .await?;
+
+        info!("Sent nostr dm: {:?}", dm);
+        Ok(())
     }
 }

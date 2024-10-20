@@ -105,7 +105,7 @@ impl UserDb {
                 .pubkey(pubkey.to_string())
                 .relays(relays)
                 .federation_ids(federation_ids)
-                .last_tweak(0)
+                .last_tweak(10)
                 .build()?;
             self.create(user).await?;
         }

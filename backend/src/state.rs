@@ -206,9 +206,19 @@ impl AppState {
         params: &LnurlCallbackParams,
         federation_id: FederationId,
     ) -> Result<(OperationId, Invoice)> {
-        let tweak = user.last_tweak + 1;
-        let (op_id, invoice, _) =
-            Self::create_invoice_for_user_tweaked(ln, params, user, tweak).await?;
+        let mut tweak = user.last_tweak + 1;
+        let (op_id, invoice, _) = loop {
+            match Self::create_invoice_for_user_tweaked(ln, params, user, tweak).await {
+                Ok(result) => break result,
+                Err(e) if e.to_string().contains("already exists") => {
+                    info!("Invoice already exists, trying next tweak");
+                    tweak += 1;
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
+        self.db.users().update_tweak(user, tweak).await?;
 
         let stored_invoice = self
             .db
@@ -217,6 +227,7 @@ impl AppState {
                 op_id: op_id.fmt_full().to_string(),
                 federation_id: federation_id.to_string(),
                 user_id: user.id,
+                user_pubkey: user.pubkey.clone(),
                 amount: params.amount as i64,
                 bolt11: invoice.to_string(),
                 tweak,
