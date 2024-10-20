@@ -12,6 +12,7 @@ export enum Tab {
 export interface User {
   id: string;
   name: string;
+  publicKey: string;
 }
 
 export enum APP_ACTION_TYPE {
