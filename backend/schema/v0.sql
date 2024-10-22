@@ -2,10 +2,13 @@
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
+  replit_id BIGINT NOT NULL UNIQUE,
+  replit_profile_pic VARCHAR(255) NOT NULL,
   pubkey VARCHAR(66) NOT NULL UNIQUE,
   last_tweak BIGINT NOT NULL,
   relays TEXT [] NOT NULL,
-  federation_ids TEXT [] NOT NULL
+  federation_ids TEXT [] NOT NULL,
+  connection_code_uuid VARCHAR(36) NOT NULL
 );
 -- Create invoices table
 CREATE TABLE IF NOT EXISTS invoices (
