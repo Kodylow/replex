@@ -1,24 +1,25 @@
 use crate::model::users::{User, UserForCreate, UserForUpdate};
 use crate::model::Db;
 use anyhow::Result;
-use serde_json::Value;
-use tokio::fs;
 use tracing::info;
 
 pub struct UserDb(pub Db);
 
 impl UserDb {
     pub async fn create(&self, user: UserForCreate) -> Result<User> {
-        let sql = "INSERT INTO users (name, pubkey, last_tweak, relays, federation_ids) VALUES ($1, $2, $3, $4, $5) RETURNING *";
+        let sql = "INSERT INTO users (name, replit_id, replit_profile_pic, pubkey, relays, federation_ids, connection_code_uuid, last_tweak) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *";
         self.0
             .query_one::<User>(
                 sql,
                 &[
                     &user.name,
+                    &user.replit_id,
+                    &user.replit_profile_pic,
                     &user.pubkey,
-                    &user.last_tweak,
                     &user.relays,
                     &user.federation_ids,
+                    &user.connection_code_uuid,
+                    &user.last_tweak,
                 ],
             )
             .await
@@ -45,6 +46,16 @@ impl UserDb {
             params.push(name);
             param_count += 1;
         }
+        if let Some(replit_id) = &user.replit_id {
+            updates.push(format!("replit_id = ${}", param_count));
+            params.push(replit_id);
+            param_count += 1;
+        }
+        if let Some(replit_profile_pic) = &user.replit_profile_pic {
+            updates.push(format!("replit_profile_pic = ${}", param_count));
+            params.push(replit_profile_pic);
+            param_count += 1;
+        }
         if let Some(pubkey) = &user.pubkey {
             updates.push(format!("pubkey = ${}", param_count));
             params.push(pubkey);
@@ -58,6 +69,11 @@ impl UserDb {
         if let Some(federation_ids) = &user.federation_ids {
             updates.push(format!("federation_ids = ${}", param_count));
             params.push(federation_ids);
+            param_count += 1;
+        }
+        if let Some(connection_code_uuid) = &user.connection_code_uuid {
+            updates.push(format!("connection_code_uuid = ${}", param_count));
+            params.push(connection_code_uuid);
             param_count += 1;
         }
         if let Some(last_tweak) = &user.last_tweak {
@@ -85,6 +101,8 @@ impl UserDb {
     pub async fn update_or_create_user(
         &self,
         name: &str,
+        replit_id: &str,
+        replit_profile_pic: &str,
         pubkey: &str,
         relays: Vec<String>,
         federation_ids: Vec<String>,
@@ -93,6 +111,8 @@ impl UserDb {
             info!("User {} already exists", name);
             let user_for_update = UserForUpdate::builder()
                 .name(name.to_string())
+                .replit_id(replit_id.to_string())
+                .replit_profile_pic(replit_profile_pic.to_string())
                 .pubkey(pubkey.to_string())
                 .relays(relays)
                 .federation_ids(federation_ids)
@@ -100,53 +120,38 @@ impl UserDb {
             self.update(user.id, user_for_update).await?;
         } else {
             info!("User {} does not exist", name);
-            let user = UserForCreate::builder()
-                .name(name.to_string())
-                .pubkey(pubkey.to_string())
-                .relays(relays)
-                .federation_ids(federation_ids)
-                .last_tweak(10)
-                .build()?;
+            let user = UserForCreate::new(
+                name.to_string(),
+                replit_id.to_string(),
+                replit_profile_pic.to_string(),
+                pubkey.to_string(),
+                relays,
+                federation_ids,
+            );
             self.create(user).await?;
         }
 
         Ok(())
     }
 
-    pub async fn load_users_and_keys(&self) -> Result<()> {
-        info!("Loading users and keys from nostr.json");
-        let json_content = fs::read_to_string("nostr.json").await?;
-        let json: Value = serde_json::from_str(&json_content)?;
+    pub async fn create_new_user(
+        &self,
+        replit_user_id: &str,
+        replit_user_name: &str,
+        replit_profile_pic: &str,
+        pubkey: &str,
+        relays: Vec<String>,
+        federation_ids: Vec<String>,
+    ) -> Result<User> {
+        let user = UserForCreate::new(
+            replit_user_name.to_string(),
+            replit_user_id.to_string(),
+            replit_profile_pic.to_string(),
+            pubkey.to_string(),
+            relays,
+            federation_ids,
+        );
 
-        let names = json["names"]
-            .as_object()
-            .ok_or(anyhow::anyhow!("Invalid 'names' structure"))?;
-        let relays = json["relays"]
-            .as_object()
-            .ok_or(anyhow::anyhow!("Invalid 'relays' structure"))?;
-        let federation_ids = json["federation_ids"]
-            .as_object()
-            .ok_or(anyhow::anyhow!("Invalid 'federation_ids' structure"))?;
-
-        for (name, pubkey) in names {
-            let pubkey = pubkey.as_str().ok_or(anyhow::anyhow!("Invalid pubkey"))?;
-            let user_relays = relays[pubkey]
-                .as_array()
-                .ok_or(anyhow::anyhow!("Invalid relays for user"))?
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect::<Vec<String>>();
-            let user_federation_ids = federation_ids[pubkey]
-                .as_array()
-                .ok_or(anyhow::anyhow!("Invalid federation_ids for user"))?
-                .iter()
-                .map(|v| v.as_str().unwrap().to_string())
-                .collect::<Vec<String>>();
-
-            self.update_or_create_user(name, pubkey, user_relays, user_federation_ids)
-                .await?;
-        }
-
-        Ok(())
+        self.create(user).await
     }
 }

@@ -19,7 +19,6 @@ async fn main() -> Result<()> {
         .init();
 
     let state = AppState::new().await?;
-    state.db.users().load_users_and_keys().await?;
 
     let app = router::create_router(state.clone()).await?;
 

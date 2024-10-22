@@ -1,17 +1,16 @@
 use anyhow::Result;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 pub mod handlers;
 
-use handlers::{handle_readme, invoices, lnurlp, register};
+use handlers::{handle_home, invoices, lnurlp};
 
 use crate::state::AppState;
 
 pub async fn create_router(state: AppState) -> Result<Router> {
     let app = Router::new()
-        .route("/", get(handle_readme))
+        .route("/", get(handle_home))
         .route("/health", get(|| async { "OK" }))
-        .route("/register", post(register::handle_register))
         .route("/invoices", get(invoices::handle_invoices))
         .route(
             "/.well-known/lnurlp/:username",

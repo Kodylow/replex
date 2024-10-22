@@ -1,10 +1,120 @@
-use std::fs::read_to_string;
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::Html,
+};
 
+use crate::state::AppState;
+
+pub mod auth;
 pub mod invoices;
 pub mod lnurlp;
-pub mod register;
 
 #[axum_macros::debug_handler]
-pub async fn handle_readme() -> String {
-    read_to_string("README.md").expect("Could not read README.md")
+pub async fn handle_home(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let replit_user_id = headers
+        .get("X-Replit-User-Id")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "User not logged in".to_string()))?;
+
+    let replit_user_name = headers
+        .get("X-Replit-User-Name")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "User not logged in".to_string()))?;
+
+    let replit_profile_pic = headers
+        .get("X-Replit-Profile-Pic")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "User not logged in".to_string()))?;
+
+    let user = match state.db.users().get_by_name(replit_user_name).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return Ok(generate_registration_html(
+                replit_user_id,
+                replit_user_name,
+                replit_profile_pic,
+            ))
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error getting user: {}", e),
+            ))
+        }
+    };
+
+    Ok(generate_html_response(
+        replit_user_id,
+        replit_user_name,
+        &user.pubkey,
+    ))
+}
+
+fn generate_html_response(user_id: &str, user_name: &str, token: &str) -> Html<String> {
+    Html(format!(
+        r#"
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Replex-Auth</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333; }}
+                p {{ color: #555; }}
+            </style>
+        </head>
+        <body>
+            <h1>Replex-Auth</h1>
+            <p><strong>User ID:</strong> {}</p>
+            <p><strong>User Name:</strong> {}</p>
+            <p><strong>Connection Code:</strong> {}</p>
+        </body>
+        </html>
+        "#,
+        user_id, user_name, token
+    ))
+}
+
+fn generate_registration_html(user_id: &str, user_name: &str, profile_pic: &str) -> Html<String> {
+    Html(format!(
+        r#"
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Replex-Auth Registration</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333; }}
+                p {{ color: #555; }}
+                form {{ margin-top: 20px; }}
+                input[type="text"] {{ width: 300px; padding: 5px; }}
+                input[type="submit"] {{ margin-top: 10px; padding: 5px 10px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Replex-Auth Registration</h1>
+            <p><strong>User ID:</strong> {}</p>
+            <p><strong>User Name:</strong> {}</p>
+            <img src="{}" alt="Profile Picture" style="width: 100px; height: 100px;">
+            <form action="/register" method="POST">
+                <input type="hidden" name="user_id" value="{}">
+                <input type="hidden" name="user_name" value="{}">
+                <input type="hidden" name="profile_pic" value="{}">
+                <label for="pubkey">Public Key:</label><br>
+                <input type="text" id="pubkey" name="pubkey" required><br>
+                <input type="submit" value="Register">
+            </form>
+        </body>
+        </html>
+        "#,
+        user_id, user_name, profile_pic, user_id, user_name, profile_pic
+    ))
 }
