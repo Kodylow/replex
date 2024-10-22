@@ -17,3 +17,6 @@ procs:
   psql:
     cwd: ./backend
     shell: sleep 1 && source .env && psql $DATABASE_URL
+
+  ngrok:
+    shell: ngrok http 3000
