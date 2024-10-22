@@ -56,7 +56,7 @@ impl AppState {
     pub async fn handle_pending_invoices(&self) -> Result<()> {
         let pending_invoices = self
             .db
-            .invoice()
+            .invoices()
             .get_by_state(InvoiceState::Pending)
             .await?;
         let pending_invoices_by_federation = self.group_invoices_by_federation(pending_invoices);
@@ -134,7 +134,7 @@ impl AppState {
         invoice: Invoice,
         subscription: UpdateStreamOrOutcome<LnReceiveState>,
     ) -> Result<()> {
-        let invoice_db = self.db.invoice().clone();
+        let invoice_db = self.db.invoices().clone();
         let nostr = self.nostr.clone();
 
         spawn(async move {
@@ -217,14 +217,14 @@ impl AppState {
                     tweak += 1;
                     continue;
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         };
         self.db.users().update_tweak(user, tweak).await?;
 
         let stored_invoice = self
             .db
-            .invoice()
+            .invoices()
             .create(InvoiceForCreate {
                 op_id: op_id.fmt_full().to_string(),
                 federation_id: federation_id.to_string(),

@@ -15,8 +15,10 @@ pub struct Db(Pool);
 impl Db {
     pub async fn new(db_url: String) -> Result<Db> {
         let connection_pool = {
-            let mut pool_config = deadpool_postgres::Config::default();
-            pool_config.url = Some(db_url);
+            let pool_config = deadpool_postgres::Config {
+                url: Some(db_url),
+                ..Default::default()
+            };
             pool_config.create_pool(Some(Runtime::Tokio1), NoTls)
         }?;
 
@@ -49,7 +51,7 @@ impl Db {
         UserDb(self.clone())
     }
 
-    pub fn invoice(&self) -> InvoiceDb {
+    pub fn invoices(&self) -> InvoiceDb {
         InvoiceDb(self.clone())
     }
     // --- END TABLES ---

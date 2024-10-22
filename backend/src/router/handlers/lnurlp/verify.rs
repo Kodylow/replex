@@ -29,7 +29,7 @@ pub async fn handle_verify(
         username, op_id
     );
 
-    match state.db.invoice().get_by_op_id(&op_id).await? {
+    match state.db.invoices().get_by_op_id(&op_id).await? {
         Some(invoice) => {
             let verify_response = LnurlVerifyResponse {
                 status: LnurlStatus::Ok,
